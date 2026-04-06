@@ -117,32 +117,34 @@ extern addr_t sys_write(void);
 extern addr_t sys_uptime(void);
 extern addr_t sys_poweroff(void);
 extern addr_t sys_fseek(void);
+extern addr_t sys_kbddecoy(void);
 
 // PAGEBREAK!
 static addr_t (*syscalls[])(void) = {
-  [SYS_fork]       sys_fork,
-  [SYS_exit]       sys_exit,
-  [SYS_wait]       sys_wait,
-  [SYS_pipe]       sys_pipe,
-  [SYS_read]       sys_read,
-  [SYS_kill]       sys_kill,
-  [SYS_exec]       sys_exec,
-  [SYS_fstat]      sys_fstat,
-  [SYS_chdir]      sys_chdir,
-  [SYS_dup]        sys_dup,
-  [SYS_getpid]     sys_getpid,
-  [SYS_sbrk]       sys_sbrk,
-  [SYS_sleep]      sys_sleep,
-  [SYS_uptime]     sys_uptime,
-  [SYS_open]       sys_open,
-  [SYS_write]      sys_write,
-  [SYS_mknod]      sys_mknod,
-  [SYS_unlink]     sys_unlink,
-  [SYS_link]       sys_link,
-  [SYS_mkdir]      sys_mkdir,
-  [SYS_close]      sys_close,
-  [SYS_poweroff]   sys_poweroff,
-  [SYS_fseek]      sys_fseek,
+    [SYS_fork] sys_fork,
+    [SYS_exit] sys_exit,
+    [SYS_wait] sys_wait,
+    [SYS_pipe] sys_pipe,
+    [SYS_read] sys_read,
+    [SYS_kill] sys_kill,
+    [SYS_exec] sys_exec,
+    [SYS_fstat] sys_fstat,
+    [SYS_chdir] sys_chdir,
+    [SYS_dup] sys_dup,
+    [SYS_getpid] sys_getpid,
+    [SYS_sbrk] sys_sbrk,
+    [SYS_sleep] sys_sleep,
+    [SYS_uptime] sys_uptime,
+    [SYS_open] sys_open,
+    [SYS_write] sys_write,
+    [SYS_mknod] sys_mknod,
+    [SYS_unlink] sys_unlink,
+    [SYS_link] sys_link,
+    [SYS_mkdir] sys_mkdir,
+    [SYS_close] sys_close,
+    [SYS_poweroff] sys_poweroff,
+    [SYS_fseek] sys_fseek,
+    [SYS_kbddecoy] sys_kbddecoy,
 };
 
 void syscall(struct trapframe* tf) {

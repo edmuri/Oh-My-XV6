@@ -199,44 +199,72 @@ struct {
 
 #define C(x) ((x) - '@') // Control-x
 
+void clear() {
+  while (input.e != input.w && input.buf[(input.e - 1) % INPUT_BUF] != '\n') {
+    input.e--;
+    consputc(BACKSPACE);
+  }
+}
+
+void handle_input(char c) {
+  switch (c) {
+  case C('Z'): // reboot
+    lidt(0, 0);
+    break;
+  case C('D'): // Process listing.
+    procdump();
+    break;
+  case C('C'): // Kill line.
+    clear();
+    break;
+  case C('H'):
+  case '\x7f': // Backspace
+    if (input.e != input.w) {
+      input.e--;
+      consputc(BACKSPACE);
+    }
+    break;
+  default:
+    if (c != 0 && input.e - input.r < INPUT_BUF) {
+      if (c == C('P') || c == C('N')) {
+        clear();
+
+        input.buf[input.e++ % INPUT_BUF] = c;
+        consputc(c);
+
+        input.w = input.e;
+        wakeup(&input.r);
+        break;
+      }
+
+      c = (c == '\r') ? '\n' : c;
+      input.buf[input.e++ % INPUT_BUF] = c;
+      consputc(c);
+
+      if (c == '\n' || c == C('D') || input.e == input.r + INPUT_BUF) {
+        input.w = input.e;
+        wakeup(&input.r);
+      }
+    }
+    break;
+  }
+}
+
+void consoleinput(char* s) {
+  acquire(&input.lock);
+  while (*s != 0x00) {
+    handle_input(*s);
+    ++s;
+  }
+  release(&input.lock);
+}
+
 void consoleintr(int (*getc)(void)) {
   int c;
 
   acquire(&input.lock);
   while ((c = getc()) >= 0) {
-    switch (c) {
-    case C('Z'): // reboot
-      lidt(0, 0);
-      break;
-    case C('P'): // Process listing.
-      procdump();
-      break;
-    case C('U'): // Kill line.
-      while (input.e != input.w &&
-             input.buf[(input.e - 1) % INPUT_BUF] != '\n') {
-        input.e--;
-        consputc(BACKSPACE);
-      }
-      break;
-    case C('H'):
-    case '\x7f': // Backspace
-      if (input.e != input.w) {
-        input.e--;
-        consputc(BACKSPACE);
-      }
-      break;
-    default:
-      if (c != 0 && input.e - input.r < INPUT_BUF) {
-        c = (c == '\r') ? '\n' : c;
-        input.buf[input.e++ % INPUT_BUF] = c;
-        consputc(c);
-        if (c == '\n' || c == C('D') || input.e == input.r + INPUT_BUF) {
-          input.w = input.e;
-          wakeup(&input.r);
-        }
-      }
-      break;
-    }
+    handle_input(c);
   }
   release(&input.lock);
 }

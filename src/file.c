@@ -144,38 +144,41 @@ int filewrite(struct file* f, char* addr, int n) {
   panic("filewrite");
 }
 
-int
-fileseek(struct file* f, int offset, int position)
-{
-  if (f->type != FD_INODE) return -1;
+int fileseek(struct file* f, int offset, int position) {
+  if (f->type != FD_INODE)
+    return -1;
 
   struct stat s;
-  if (filestat(f, &s) != 0) return -1;
+  if (filestat(f, &s) != 0)
+    return -1;
 
   int new_off;
   switch (position) {
-    case 0: { // SET == start
-      new_off = offset;
-      break;
-    }
-
-    case 1: { // CUR == current
-      new_off = f->off + offset;
-      break;
-    }
-
-    case 2: { // END == end
-      new_off = s.size - offset;
-      break;
-    }
-  
-    default: return -1;
+  case 0: { // SET == start
+    new_off = offset;
+    break;
   }
 
-  if (new_off < 0) new_off = 0;
-  if (new_off > s.size) new_off = s.size;
+  case 1: { // CUR == current
+    new_off = f->off + offset;
+    break;
+  }
+
+  case 2: { // END == end
+    new_off = s.size - offset;
+    break;
+  }
+
+  default:
+    return -1;
+  }
+
+  if (new_off < 0)
+    new_off = 0;
+  if (new_off > s.size)
+    new_off = s.size;
 
   f->off = new_off;
 
-  return 0;
+  return new_off;
 }

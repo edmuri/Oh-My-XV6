@@ -26,6 +26,7 @@ void bwrite(struct buf*);
 void consoleinit(void);
 void cprintf(char*, ...);
 void consoleintr(int (*)(void));
+void consoleinput(char* s);
 void panic(char*) __attribute__((noreturn));
 
 // exec.c
