@@ -119,9 +119,9 @@ mkfs: mkfs.c fs.h
 UPROGS= \
 	_cat _echo _forktest _grep _init _kill _ln _ls _mkdir \
 	_rm _sh _stressfs _usertests _wc _zombie \
-#
 
-fs.img: mkfs README $(UPROGS)
+fs.img: mkfs $(UPROGS)
+	@ln -sf ../README README
 	./mkfs fs.img README $(UPROGS)
 
 clean:
