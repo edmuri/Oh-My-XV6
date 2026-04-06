@@ -26,6 +26,7 @@ char* sbrk(uint64);
 int sleep(int);
 int uptime(void);
 int poweroff(void);
+int fseek(int fd, int offset, int from);
 
 // ulib.c
 int stat(char*, struct stat*);
