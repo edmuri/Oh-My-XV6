@@ -5,32 +5,28 @@
 #include <stdarg.h>
 
 static void
-putc(int fd, char c)
-{
+putc(int fd, char c) {
   write(fd, &c, 1);
 }
 
 static char digits[] = "0123456789abcdef";
 
-  static void
-print_x64(int fd, addr_t x)
-{
+static void
+print_x64(int fd, addr_t x) {
   int i;
   for (i = 0; i < (sizeof(addr_t) * 2); i++, x <<= 4)
     putc(fd, digits[x >> (sizeof(addr_t) * 8 - 4)]);
 }
 
-  static void
-print_x32(int fd, uint x)
-{
+static void
+print_x32(int fd, uint x) {
   int i;
   for (i = 0; i < (sizeof(uint) * 2); i++, x <<= 4)
     putc(fd, digits[x >> (sizeof(uint) * 8 - 4)]);
 }
 
-  static void
-print_d(int fd, int v)
-{
+static void
+print_d(int fd, int v) {
   char buf[16];
   int64 x = v;
 
@@ -41,7 +37,7 @@ print_d(int fd, int v)
   do {
     buf[i++] = digits[x % 10];
     x /= 10;
-  } while(x != 0);
+  } while (x != 0);
 
   if (v < 0)
     buf[i++] = '-';
@@ -50,12 +46,10 @@ print_d(int fd, int v)
     putc(fd, buf[i]);
 }
 // Print to the given fd. Only understands %d, %x, %p, %s.
-  void
-printf(int fd, char *fmt, ...)
-{
+void printf(int fd, char* fmt, ...) {
   va_list ap;
   int i, c;
-  char *s;
+  char* s;
 
   va_start(ap, fmt);
   for (i = 0; (c = fmt[i] & 0xff) != 0; i++) {
@@ -66,7 +60,7 @@ printf(int fd, char *fmt, ...)
     c = fmt[++i] & 0xff;
     if (c == 0)
       break;
-    switch(c) {
+    switch (c) {
     case 'c':
       putc(fd, va_arg(ap, int));
       break;

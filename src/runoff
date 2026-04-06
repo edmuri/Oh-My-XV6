@@ -52,19 +52,19 @@ perl -e '
 		s!\s+! !g;
 		s! +$!!;
 		next if /^$/;
-		
+
 		if(/TOC: (\d+) (.*)/){
 			$toc{$2} = $1;
 			next;
 		}
-		
+
 		if(/sheet1: (left|right)$/){
 			print STDERR "assuming that sheet 1 is a $1 page.  double-check!\n";
 			$left = $1 eq "left" ? "13579" : "02468";
 			$right = $1 eq "left" ? "02468" : "13579";
 			next;
 		}
-		
+
 		if(/even: (.*)/){
 			$file = $1;
 			if(!defined($toc{$file})){
@@ -76,7 +76,7 @@ perl -e '
 			}
 			next;
 		}
-		
+
 		if(/odd: (.*)/){
 			$file = $1;
 			if(!defined($toc{$file})){
@@ -88,7 +88,7 @@ perl -e '
 			}
 			next;
 		}
-		
+
 		if(/(left|right): (.*)/){
 			$what = $1;
 			$file = $2;
@@ -106,7 +106,7 @@ perl -e '
 			}
 			next;
 		}
-		
+
 		print STDERR "Unknown spec: $_\n";
 	}
 ' fmt/tocdata runoff.spec

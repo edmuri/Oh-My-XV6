@@ -11,7 +11,7 @@ ifeq ($(UNAME_S),Linux)
 	TOOLPREFIX = x86_64-linux-gnu-
   else
   	# no prefix for Linux or WSL2
- 	 TOOLPREFIX = 
+ 	 TOOLPREFIX =
   endif
 else ifeq ($(UNAME_S),Darwin)
   # need homebrew: $ brew install qemu x86_64-elf-gcc

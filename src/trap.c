@@ -9,45 +9,40 @@
 #include "spinlock.h"
 
 // Interrupt descriptor table (shared by all CPUs).
-uint *idt;
-extern addr_t vectors[];  // in vectors.S: array of 256 entry pointers
+uint* idt;
+extern addr_t vectors[]; // in vectors.S: array of 256 entry pointers
 struct spinlock tickslock;
 uint ticks;
 
 static void
-mkgate(uint *idt, uint n, addr_t kva, uint pl)
-{
-  uint64 addr = (uint64) kva;
+mkgate(uint* idt, uint n, addr_t kva, uint pl) {
+  uint64 addr = (uint64)kva;
 
   n *= 4;
-  idt[n+0] = (addr & 0xFFFF) | (KERNEL_CS << 16);
-  idt[n+1] = (addr & 0xFFFF0000) | 0x8E00 | ((pl & 3) << 13);
-  idt[n+2] = addr >> 32;
-  idt[n+3] = 0;
+  idt[n + 0] = (addr & 0xFFFF) | (KERNEL_CS << 16);
+  idt[n + 1] = (addr & 0xFFFF0000) | 0x8E00 | ((pl & 3) << 13);
+  idt[n + 2] = addr >> 32;
+  idt[n + 3] = 0;
 }
 
-void idtinit(void)
-{
-  lidt((void*) idt, PGSIZE);
+void idtinit(void) {
+  lidt((void*)idt, PGSIZE);
 }
 
-void tvinit(void)
-{
+void tvinit(void) {
   int n;
-  idt = (uint*) kalloc();
+  idt = (uint*)kalloc();
   memset(idt, 0, PGSIZE);
 
   for (n = 0; n < 256; n++)
     mkgate(idt, n, vectors[n], 0);
 }
 
-//PAGEBREAK: 41
-void
-trap(struct trapframe *tf)
-{
-  switch(tf->trapno){
+// PAGEBREAK: 41
+void trap(struct trapframe* tf) {
+  switch (tf->trapno) {
   case T_IRQ0 + IRQ_TIMER:
-    if(cpunum() == 0){
+    if (cpunum() == 0) {
       acquire(&tickslock);
       ticks++;
       wakeup(&ticks);
@@ -59,7 +54,7 @@ trap(struct trapframe *tf)
     ideintr();
     lapiceoi();
     break;
-  case T_IRQ0 + IRQ_IDE+1:
+  case T_IRQ0 + IRQ_IDE + 1:
     // Bochs generates spurious IDE1 interrupts.
     break;
   case T_IRQ0 + IRQ_KBD:
@@ -77,9 +72,9 @@ trap(struct trapframe *tf)
     lapiceoi();
     break;
 
-  //PAGEBREAK: 13
+  // PAGEBREAK: 13
   default:
-    if(proc == 0 || (tf->cs&3) == 0){
+    if (proc == 0 || (tf->cs & 3) == 0) {
       // In kernel, it must be our mistake.
       cprintf("unexpected trap %d from cpu %d rip %p (cr2=0x%p)\n",
               tf->trapno, cpunum(), tf->rip, rcr2());
@@ -98,15 +93,15 @@ trap(struct trapframe *tf)
   // Force process exit if it has been killed and is in user space.
   // (If it is still executing in the kernel, let it keep running
   // until it gets to the regular system call return.)
-  if(proc && proc->killed && (tf->cs&3) == DPL_USER)
+  if (proc && proc->killed && (tf->cs & 3) == DPL_USER)
     exit();
 
   // Force process to give up CPU on clock tick.
   // If interrupts were on while locks held, would need to check nlock.
-  if(proc && proc->state == RUNNING && tf->trapno == T_IRQ0+IRQ_TIMER)
+  if (proc && proc->state == RUNNING && tf->trapno == T_IRQ0 + IRQ_TIMER)
     yield();
 
   // Check if the process has been killed since we yielded
-  if(proc && proc->killed && (tf->cs&3) == DPL_USER)
+  if (proc && proc->killed && (tf->cs & 3) == DPL_USER)
     exit();
 }

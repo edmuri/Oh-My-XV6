@@ -7,14 +7,12 @@
 #include "x86.h"
 #include "elf.h"
 
-int
-exec(char *path, char **argv)
-{
+int exec(char* path, char** argv) {
   char *s, *last;
   int i, off;
-  addr_t argc, sz, sp, ustack[3+MAXARG+1];
+  addr_t argc, sz, sp, ustack[3 + MAXARG + 1];
   struct elfhdr elf;
-  struct inode *ip;
+  struct inode* ip;
   struct proghdr ph;
   pde_t *pgdir, *oldpgdir;
 
@@ -22,7 +20,7 @@ exec(char *path, char **argv)
 
   begin_op();
 
-  if((ip = namei(path)) == 0){
+  if ((ip = namei(path)) == 0) {
     end_op();
     return -1;
   }
@@ -30,30 +28,30 @@ exec(char *path, char **argv)
   pgdir = 0;
 
   // Check ELF header
-  if(readi(ip, (char*)&elf, 0, sizeof(elf)) != sizeof(elf))
+  if (readi(ip, (char*)&elf, 0, sizeof(elf)) != sizeof(elf))
     goto bad;
-  if(elf.magic != ELF_MAGIC)
+  if (elf.magic != ELF_MAGIC)
     goto bad;
 
-  if((pgdir = setupkvm()) == 0)
+  if ((pgdir = setupkvm()) == 0)
     goto bad;
 
   // Load program into memory.
   sz = PGSIZE; // skip the first page
-  for(i=0, off=elf.phoff; i<elf.phnum; i++, off+=sizeof(ph)){
-    if(readi(ip, (char*)&ph, off, sizeof(ph)) != sizeof(ph))
+  for (i = 0, off = elf.phoff; i < elf.phnum; i++, off += sizeof(ph)) {
+    if (readi(ip, (char*)&ph, off, sizeof(ph)) != sizeof(ph))
       goto bad;
-    if(ph.type != ELF_PROG_LOAD)
+    if (ph.type != ELF_PROG_LOAD)
       continue;
-    if(ph.memsz < ph.filesz)
+    if (ph.memsz < ph.filesz)
       goto bad;
-    if(ph.vaddr + ph.memsz < ph.vaddr)
+    if (ph.vaddr + ph.memsz < ph.vaddr)
       goto bad;
-    if((sz = allocuvm(pgdir, sz, ph.vaddr + ph.memsz)) == 0)
+    if ((sz = allocuvm(pgdir, sz, ph.vaddr + ph.memsz)) == 0)
       goto bad;
-    if(ph.vaddr % PGSIZE != 0)
+    if (ph.vaddr % PGSIZE != 0)
       goto bad;
-    if(loaduvm(pgdir, (char*)ph.vaddr, ip, ph.off, ph.filesz) < 0)
+    if (loaduvm(pgdir, (char*)ph.vaddr, ip, ph.off, ph.filesz) < 0)
       goto bad;
   }
   iunlockput(ip);
@@ -63,51 +61,51 @@ exec(char *path, char **argv)
   // Allocate two pages at the next page boundary.
   // Make the first inaccessible.  Use the second as the user stack.
   sz = PGROUNDUP(sz);
-  if((sz = allocuvm(pgdir, sz, sz + 2*PGSIZE)) == 0)
+  if ((sz = allocuvm(pgdir, sz, sz + 2 * PGSIZE)) == 0)
     goto bad;
-  clearpteu(pgdir, (char*)(sz - 2*PGSIZE));
+  clearpteu(pgdir, (char*)(sz - 2 * PGSIZE));
   sp = sz;
   // Push argument strings, prepare rest of stack in ustack.
-  for(argc = 0; argv[argc]; argc++) {
-    if(argc >= MAXARG)
+  for (argc = 0; argv[argc]; argc++) {
+    if (argc >= MAXARG)
       goto bad;
-    sp = (sp - (strlen(argv[argc]) + 1)) & ~(sizeof(addr_t)-1);
-    if(copyout(pgdir, sp, argv[argc], strlen(argv[argc]) + 1) < 0)
+    sp = (sp - (strlen(argv[argc]) + 1)) & ~(sizeof(addr_t) - 1);
+    if (copyout(pgdir, sp, argv[argc], strlen(argv[argc]) + 1) < 0)
       goto bad;
-    ustack[1+argc] = sp;
+    ustack[1 + argc] = sp;
   }
-  ustack[1+argc] = 0;
+  ustack[1 + argc] = 0;
 
-  ustack[0] = 0xffffffffffffffff;  // fake return PC
+  ustack[0] = 0xffffffffffffffff; // fake return PC
 
-	// argc and argv for main() entry point
+  // argc and argv for main() entry point
   proc->tf->rdi = argc;
-  proc->tf->rsi = sp - (argc+1)*sizeof(addr_t);
+  proc->tf->rsi = sp - (argc + 1) * sizeof(addr_t);
 
-  sp -= (1+argc+1) * sizeof(addr_t);
-  if(copyout(pgdir, sp, ustack, (1+argc+1)*sizeof(addr_t)) < 0)
+  sp -= (1 + argc + 1) * sizeof(addr_t);
+  if (copyout(pgdir, sp, ustack, (1 + argc + 1) * sizeof(addr_t)) < 0)
     goto bad;
 
   // Save program name for debugging.
-  for(last=s=path; *s; s++)
-    if(*s == '/')
-      last = s+1;
+  for (last = s = path; *s; s++)
+    if (*s == '/')
+      last = s + 1;
   safestrcpy(proc->name, last, sizeof(proc->name));
 
   // Commit to the user image.
   proc->pgdir = pgdir;
   proc->sz = sz;
-  proc->tf->rip = elf.entry;  // main
+  proc->tf->rip = elf.entry; // main
   proc->tf->rcx = elf.entry;
   proc->tf->rsp = sp;
   switchuvm(proc);
   freevm(oldpgdir);
   return 0;
 
- bad:
-  if(pgdir)
+bad:
+  if (pgdir)
     freevm(pgdir);
-  if(ip){
+  if (ip) {
     iunlockput(ip);
     end_op();
   }
