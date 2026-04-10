@@ -317,14 +317,15 @@ int getcmd(char* buf, int nbuf) {
 
     if (c == 0x10) { // ctrl-p
       char* com = get_prev_command();
-      if (com != 0x00)
-        kbddecoy(buf);
+      if (com != 0x00) {
+        kbddecoy(com);
+      }
       continue;
     }
     if (c == 0x0e) { // ctrl-n
       char* com = get_next_command();
       if (com != 0x00)
-        kbddecoy(buf);
+        kbddecoy(com);
       continue;
     }
 
