@@ -421,9 +421,7 @@ int sys_fseek(void) {
   if (argint(2, &position) < 0)
     return -1;
 
-  fileseek(f, offset, position);
-
-  return 0;
+  return fileseek(f, offset, position);
 }
 
 int sys_kbddecoy(void) {

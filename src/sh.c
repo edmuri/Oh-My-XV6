@@ -135,14 +135,24 @@ struct command {
   struct command* next;
   char* content;
 };
+
 static struct history {
   int fd;
   int pos;
+  int topped;
   struct command* prev_end;
   struct command* prev;
   struct command* curr;
   struct command* next;
-} history;
+} history = {
+    .fd = -1,
+    .pos = -1,
+    .topped = 0,
+    .prev_end = 0x00,
+    .prev = 0x00,
+    .curr = 0x00,
+    .next = 0x00,
+};
 
 void load_history_command(char* content) {
   int len = strlen(content);
@@ -164,34 +174,46 @@ void load_history_command(char* content) {
 
 void load_history() {
   // TODO: adjust pos to last newline for non-topped loads
-  const int DEFAULT_LOAD = 256;
-  char buf[DEFAULT_LOAD];
+  const int DEFAULT_LOAD = 255;
+  char buf[DEFAULT_LOAD + 1];
 
+  int start_pos = history.pos;
   if ((history.pos = fseek(history.fd, history.pos - DEFAULT_LOAD, 0)) == -1) {
     printf(2, "failed to seek to history loading point\n");
     exit();
   }
+  if (history.pos == 0)
+    history.topped = 1;
 
   int nread;
-  if ((nread = read(history.fd, buf, DEFAULT_LOAD)) == -1) {
+  if ((nread = read(history.fd, buf, start_pos - history.pos)) == -1) {
     printf(2, "failed to read history");
     exit();
   }
-  buf[nread] = 0x00;
+
+  if (nread == 0)
+    return;
 
   int pos = nread - 2; // -0x00, -\n
   buf[pos + 1] = 0x00; // clear \n
+  buf[nread] = 0x00;   // terminate
 
+  int last_nl = nread - 1;
   for (int i = 0; i < nread - 2; ++i) {
     if (buf[pos] == '\n') {
+      last_nl = pos;
       buf[pos] = 0x00;
       load_history_command(&buf[pos + 1]);
     }
     --pos;
   }
-  if (history.pos == 0 && *buf != 0x00) {
+
+  if (history.topped) {
     load_history_command(buf);
+    return;
   }
+
+  history.pos += last_nl + 1;
 }
 
 void init_history() {
@@ -207,8 +229,6 @@ void init_history() {
   }
 
   history.pos = s.size;
-  history.next = 0x00;
-  history.prev = 0x00;
 
   load_history();
 }
@@ -267,8 +287,13 @@ void log_command(char* buf) {
 }
 
 char* get_prev_command() {
-  if (history.prev == 0x00)
+  if (history.prev == 0x00) {
+    if (!history.topped) {
+      load_history();
+      return get_prev_command();
+    }
     return 0x00;
+  }
 
   if (history.curr) {
     history.curr->next = history.next;
@@ -319,6 +344,8 @@ int getcmd(char* buf, int nbuf) {
       char* com = get_prev_command();
       if (com != 0x00) {
         kbddecoy(com);
+      } else if (history.curr) {
+        kbddecoy(history.curr->content);
       }
       continue;
     }
