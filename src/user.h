@@ -25,6 +25,9 @@ int getpid(void);
 char* sbrk(uint64);
 int sleep(int);
 int uptime(void);
+int poweroff(void);
+int fseek(int fd, int offset, int from);
+int kbddecoy(char* s);
 
 // ulib.c
 int stat(char*, struct stat*);

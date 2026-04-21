@@ -1,8 +1,8 @@
 // Shell.
 
-#include "types.h"
 #include "user.h"
 #include "fcntl.h"
+#include "stat.h"
 
 // Parsed command representation
 #define EXEC 1
@@ -131,10 +131,239 @@ void runcmd(struct cmd* cmd) {
 }
 #pragma GCC diagnostic pop
 
+struct command {
+  struct command* next;
+  char* content;
+};
+
+static struct history {
+  int fd;
+  int pos;
+  int topped;
+  struct command* prev_end;
+  struct command* prev;
+  struct command* curr;
+  struct command* next;
+} history = {
+    .fd = -1,
+    .pos = -1,
+    .topped = 0,
+    .prev_end = 0x00,
+    .prev = 0x00,
+    .curr = 0x00,
+    .next = 0x00,
+};
+
+void load_history_command(char* content) {
+  int len = strlen(content);
+  char* con = malloc(len + 1);
+  struct command* com = malloc(sizeof(struct command));
+
+  memmove(con, content, len + 1);
+  com->content = con;
+  com->next = 0x00;
+
+  if (history.prev == 0) {
+    history.prev = com;
+    history.prev_end = com;
+  } else {
+    history.prev_end->next = com;
+    history.prev_end = com;
+  }
+}
+
+void load_history() {
+  // TODO: adjust pos to last newline for non-topped loads
+  const int DEFAULT_LOAD = 255;
+  char buf[DEFAULT_LOAD + 1];
+
+  int start_pos = history.pos;
+  if ((history.pos = fseek(history.fd, history.pos - DEFAULT_LOAD, 0)) == -1) {
+    printf(2, "failed to seek to history loading point\n");
+    exit();
+  }
+  if (history.pos == 0)
+    history.topped = 1;
+
+  int nread;
+  if ((nread = read(history.fd, buf, start_pos - history.pos)) == -1) {
+    printf(2, "failed to read history");
+    exit();
+  }
+
+  if (nread == 0)
+    return;
+
+  int pos = nread - 2; // -0x00, -\n
+  buf[pos + 1] = 0x00; // clear \n
+  buf[nread] = 0x00;   // terminate
+
+  int last_nl = nread - 1;
+  for (int i = 0; i < nread - 2; ++i) {
+    if (buf[pos] == '\n') {
+      last_nl = pos;
+      buf[pos] = 0x00;
+      load_history_command(&buf[pos + 1]);
+    }
+    --pos;
+  }
+
+  if (history.topped) {
+    load_history_command(buf);
+    return;
+  }
+
+  history.pos += last_nl + 1;
+}
+
+void init_history() {
+  if ((history.fd = open("history.hist", O_CREATE | O_RDWR)) == -1) {
+    printf(2, "failed to open history file");
+    exit();
+  }
+
+  struct stat s;
+  if (fstat(history.fd, &s) == -1) {
+    printf(2, "failed to stat history file");
+    exit();
+  }
+
+  history.pos = s.size;
+
+  load_history();
+}
+
+void reset_command_position() {
+  if (history.curr) {
+    history.curr->next = history.prev;
+    history.prev = history.curr;
+    history.curr = 0x00;
+  }
+
+  while (history.next) {
+    struct command* com = history.next;
+    history.next = history.next->next;
+    com->next = history.prev;
+    history.prev = com;
+  }
+}
+
+void log_command(char* buf) {
+  reset_command_position();
+
+  // find size, remove newline
+  char* pos = buf;
+  while (*pos != 0x0)
+    ++pos;
+  int sz = pos - buf;
+  buf[sz - 1] = 0x00;
+
+  // avoid sequentially duplicate entries
+  if (history.prev && (strcmp(history.prev->content, buf) == 0))
+    return;
+
+  // FILE WRITING
+  fseek(history.fd, 0, 2);
+  buf[sz - 1] = '\n'; // put the newline back for a moment
+  write(history.fd, buf, pos - buf);
+
+  // INTERNAL STATE WRITING
+  buf[sz - 1] = 0x00; // remove the newline again
+  int len = strlen(buf);
+  char* con = malloc(len + 1);
+  struct command* com = malloc(sizeof(struct command));
+
+  memmove(con, buf, len + 1);
+  com->content = con;
+
+  if (history.prev == 0) {
+    com->next = 0x00;
+    history.prev = com;
+    history.prev_end = com;
+  } else {
+    com->next = history.prev;
+    history.prev = com;
+  }
+}
+
+char* get_prev_command() {
+  if (history.prev == 0x00) {
+    if (!history.topped) {
+      load_history();
+      return get_prev_command();
+    }
+    return 0x00;
+  }
+
+  if (history.curr) {
+    history.curr->next = history.next;
+    history.next = history.curr;
+  }
+
+  history.curr = history.prev;
+  history.prev = history.prev->next;
+  history.curr->next = 0x00;
+
+  return history.curr->content;
+}
+
+char* get_next_command() {
+  if (history.next == 0x00) {
+    if (history.curr) {
+      history.curr->next = history.prev;
+      history.prev = history.curr;
+      history.curr = 0x00;
+    }
+
+    return 0x00;
+  }
+
+  if (history.curr) {
+    history.curr->next = history.prev;
+    history.prev = history.curr;
+  }
+
+  history.curr = history.next;
+  history.next = history.next->next;
+  history.curr->next = 0x00;
+
+  return history.curr->content;
+}
+
 int getcmd(char* buf, int nbuf) {
   printf(2, "$ ");
   memset(buf, 0, nbuf);
-  gets(buf, nbuf);
+
+  int n;
+  char c;
+  for (n = 0; n < nbuf;) {
+    if (read(0, &c, 1) != 1)
+      return -1;
+
+    if (c == 0x10) { // ctrl-p
+      char* com = get_prev_command();
+      if (com != 0x00) {
+        kbddecoy(com);
+      } else if (history.curr) {
+        kbddecoy(history.curr->content);
+      }
+      continue;
+    }
+    if (c == 0x0e) { // ctrl-n
+      char* com = get_next_command();
+      if (com != 0x00)
+        kbddecoy(com);
+      continue;
+    }
+
+    buf[n++] = c;
+
+    if (c == '\n')
+      break;
+  }
+
+  buf[n] = 0x00;
+
   if (buf[0] == 0) // EOF
     return -1;
   return 0;
@@ -152,6 +381,8 @@ int main(void) {
     }
   }
 
+  init_history();
+
   // Read and run input commands.
   while (getcmd(buf, sizeof(buf)) >= 0) {
     if (buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' ') {
@@ -163,7 +394,9 @@ int main(void) {
     }
     if (fork1() == 0)
       runcmd(parsecmd(buf));
+
     wait();
+    log_command(buf);
   }
   exit();
 }

@@ -409,3 +409,28 @@ int sys_pipe(void) {
   fd[1] = fd1;
   return 0;
 }
+
+int sys_fseek(void) {
+  struct file* f;
+  int offset, position;
+
+  if (argfd(0, 0, &f) < 0)
+    return -1;
+  if (argint(1, &offset) < 0)
+    return -1;
+  if (argint(2, &position) < 0)
+    return -1;
+
+  return fileseek(f, offset, position);
+}
+
+int sys_kbddecoy(void) {
+  char* str;
+
+  if (argstr(0, &str) < 0)
+    return -1;
+
+  consoleinput(str);
+
+  return 0;
+}
