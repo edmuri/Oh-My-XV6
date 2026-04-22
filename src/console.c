@@ -219,9 +219,17 @@ void handle_input(char c) {
     break;
   case C('H'):
   case '\x7f': // Backspace
-    if (input.e != input.w) {
-      input.e--;
-      consputc(BACKSPACE);
+    if(input.e - input.r < INPUT_BUF){
+      input.buf[input.e++ % INPUT_BUF] = '\x7f';
+      input.w=input.e;
+      wakeup(&input.r);
+    }
+    break;
+  case '\t':
+    if (input.e - input.r < INPUT_BUF) {
+      input.buf[input.e++ % INPUT_BUF] = c;
+      input.w = input.e;
+      wakeup(&input.r);
     }
     break;
   default:
@@ -297,7 +305,7 @@ int consoleread(struct inode* ip, uint off, char* dst, int n) {
     *dst++ = c;
     --n;
     if (c == '\n')
-      break;
+    break;
   }
   release(&input.lock);
   ilock(ip);

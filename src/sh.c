@@ -3,6 +3,8 @@
 #include "user.h"
 #include "fcntl.h"
 #include "stat.h"
+#include "fs.h"
+
 
 // Parsed command representation
 #define EXEC 1
@@ -181,7 +183,6 @@ void load_history_command(char* content) {
 }
 
 void load_history() {
-  // TODO: adjust pos to last newline for non-topped loads
   const int DEFAULT_LOAD = 255;
   char buf[DEFAULT_LOAD + 1];
 
@@ -225,7 +226,7 @@ void load_history() {
 }
 
 void init_history() {
-  if ((history.fd = open("history.hist", O_CREATE | O_RDWR)) == -1) {
+  if ((history.fd = open(".sh_history", O_CREATE | O_RDWR)) == -1) {
     printf(2, "failed to open history file");
     exit();
   }
@@ -338,6 +339,44 @@ char* get_next_command() {
   return history.curr->content;
 }
 
+int
+autocomplete(char *buf, int n)
+{
+  int fd;
+  struct dirent de;
+
+  if((fd = open(".", O_RDONLY)) < 0)
+    return n;
+
+  while(read(fd, &de, sizeof(de)) == sizeof(de)){
+    if(de.inum == 0) continue;
+    
+    int last_word_start = n;
+    while(last_word_start > 0 && buf[last_word_start-1] != ' ')
+      last_word_start--;
+    
+    int current_len = n - last_word_start;
+    if (current_len <= 0) continue;
+
+    char saved_char = de.name[current_len];
+    de.name[current_len] = '\0';
+
+    if(strcmp(buf + last_word_start, de.name) == 0){
+      de.name[current_len] = saved_char; 
+      char *suffix = de.name + current_len;
+      int suffix_len = strlen(suffix);
+      write(0,suffix, suffix_len);
+      memmove(buf + n, suffix, suffix_len);
+      
+      close(fd);
+      return n + suffix_len;
+    }
+    de.name[current_len] = saved_char;
+  }
+  close(fd);
+  return n;
+}
+
 int getcmd(char* buf, int nbuf) {
   printf(2, "$ ");
   memset(buf, 0, nbuf);
@@ -364,9 +403,25 @@ int getcmd(char* buf, int nbuf) {
       continue;
     }
 
+    if (c == '\t') {
+      n = autocomplete(buf, n);
+      memset(buf + n, 0, nbuf - n);
+      continue;
+    }
+
+    if(c == '\b' || c == 127 || c=='\x7f'){
+      if(n > 0){
+        n--;
+        memset(buf + n, 0, nbuf - n);
+        write(1, "\b \b", 3);
+        
+      }
+      continue;
+    }
+
     buf[n++] = c;
 
-    if (c == '\n')
+    if (c == '\n' || c == '\r')
       break;
   }
 
