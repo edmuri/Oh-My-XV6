@@ -5,7 +5,6 @@
 #include "stat.h"
 #include "fs.h"
 
-
 // Parsed command representation
 #define EXEC 1
 #define REDIR 2
@@ -52,7 +51,7 @@ struct backcmd {
   struct cmd* cmd;
 };
 
-struct{
+struct {
   char name[32];
   char path[64];
 } jump_table[MAX_JUMP_ENTRIES];
@@ -339,35 +338,35 @@ char* get_next_command() {
   return history.curr->content;
 }
 
-int
-autocomplete(char *buf, int n)
-{
+int autocomplete(char* buf, int n) {
   int fd;
   struct dirent de;
 
-  if((fd = open(".", O_RDONLY)) < 0)
+  if ((fd = open(".", O_RDONLY)) < 0)
     return n;
 
-  while(read(fd, &de, sizeof(de)) == sizeof(de)){
-    if(de.inum == 0) continue;
-    
+  while (read(fd, &de, sizeof(de)) == sizeof(de)) {
+    if (de.inum == 0)
+      continue;
+
     int last_word_start = n;
-    while(last_word_start > 0 && buf[last_word_start-1] != ' ')
+    while (last_word_start > 0 && buf[last_word_start - 1] != ' ')
       last_word_start--;
-    
+
     int current_len = n - last_word_start;
-    if (current_len <= 0) continue;
+    if (current_len <= 0)
+      continue;
 
     char saved_char = de.name[current_len];
     de.name[current_len] = '\0';
 
-    if(strcmp(buf + last_word_start, de.name) == 0){
-      de.name[current_len] = saved_char; 
-      char *suffix = de.name + current_len;
+    if (strcmp(buf + last_word_start, de.name) == 0) {
+      de.name[current_len] = saved_char;
+      char* suffix = de.name + current_len;
       int suffix_len = strlen(suffix);
-      write(0,suffix, suffix_len);
+      write(0, suffix, suffix_len);
       memmove(buf + n, suffix, suffix_len);
-      
+
       close(fd);
       return n + suffix_len;
     }
@@ -409,12 +408,11 @@ int getcmd(char* buf, int nbuf) {
       continue;
     }
 
-    if(c == '\b' || c == 127 || c=='\x7f'){
-      if(n > 0){
+    if (c == '\b' || c == 127 || c == '\x7f') {
+      if (n > 0) {
         n--;
         memset(buf + n, 0, nbuf - n);
         write(1, "\b \b", 3);
-        
       }
       continue;
     }
@@ -432,31 +430,35 @@ int getcmd(char* buf, int nbuf) {
   return 0;
 }
 
-void init_jump_table(){
-  int fd = open(".jump_index",O_RDONLY);
+void init_jump_table() {
+  int fd = open(".jump_index", O_RDONLY);
   // printf(1,"success? %d", fd);
 
-  if(fd<0)return;
+  if (fd < 0)
+    return;
   char c;
-  int i=0;
-  jump_count=0;
+  int i = 0;
+  jump_count = 0;
 
-  while (read(fd,&c,1)>0 && jump_count < MAX_JUMP_ENTRIES){
+  while (read(fd, &c, 1) > 0 && jump_count < MAX_JUMP_ENTRIES) {
     i = 0;
     while (c != ' ' && c != '\n') {
       jump_table[jump_count].name[i++] = c;
-      if (read(fd, &c, 1) <= 0) break;
+      if (read(fd, &c, 1) <= 0)
+        break;
     }
     jump_table[jump_count].name[i] = '\0';
 
     // Skip the space
-    if (c == ' ') read(fd, &c, 1);
+    if (c == ' ')
+      read(fd, &c, 1);
 
     // 2. Read the path (until newline)
     i = 0;
     while (c != '\n' && c != '\r') {
       jump_table[jump_count].path[i++] = c;
-      if (read(fd, &c, 1) <= 0) break;
+      if (read(fd, &c, 1) <= 0)
+        break;
     }
     jump_table[jump_count].path[i] = '\0';
     // printf(1, "%s -> %s", jump_table[jump_count].name, jump_table[jump_count].path);
@@ -465,18 +467,18 @@ void init_jump_table(){
   close(fd);
 }
 
-void jump(char *filename){
+void jump(char* filename) {
   // printf(1, "Attempting to jump to: %s\n", filename);
   // printf(1, "Count: %d", jump_count);
-  for(int i=0; i<jump_count;i++){
-    if(strcmp(filename,jump_table[i].name)==0){
-      if(chdir(jump_table[i].path)<0){
-        printf(2, "jump failed...could not reach %s\n",jump_table[i].path);
+  for (int i = 0; i < jump_count; i++) {
+    if (strcmp(filename, jump_table[i].name) == 0) {
+      if (chdir(jump_table[i].path) < 0) {
+        printf(2, "jump failed...could not reach %s\n", jump_table[i].path);
       }
       return;
     }
   }
-  printf(2,"cannot find %s, not in index",filename);
+  printf(2, "cannot find %s, not in index", filename);
 }
 
 int main(void) {
@@ -503,20 +505,20 @@ int main(void) {
       continue;
     }
 
-    //check for jump
+    // check for jump
     if (buf[0] == 'j' && buf[1] == 'u' && buf[2] == 'm' && buf[3] == 'p' && buf[4] == ' ') {
       buf[strlen(buf) - 1] = 0; // chop \n
-      char *filename = buf+5;
+      char* filename = buf + 5;
 
       jump(filename);
       continue;
     }
 
-    //updates the indexed jump table 
-    if(buf[0] == 'r' && buf[1] == 'f' && buf[2] == 's' && buf[3] == 'h'){
-    init_jump_table();
-    printf(1, "Jump table updated.\n");
-    continue;
+    // updates the indexed jump table
+    if (buf[0] == 'r' && buf[1] == 'f' && buf[2] == 's' && buf[3] == 'h') {
+      init_jump_table();
+      printf(1, "Jump table updated.\n");
+      continue;
     }
     if (fork1() == 0)
       runcmd(parsecmd(buf));

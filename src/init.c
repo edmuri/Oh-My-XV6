@@ -23,14 +23,14 @@ int main(void) {
   close(fd);
 
   pid = fork();
-  if(pid == 0){
-    char *cargv[] = {"crawler", 0};
+  if (pid == 0) {
+    char* cargv[] = {"crawler", 0};
     exec("crawler", cargv);
     printf(1, "init: crawler failed\n");
     exit();
   }
   wait();
-  // --- Eddie Edits --- 
+  // --- Eddie Edits ---
 
   for (;;) {
     printf(1, "init: starting sh\n");
