@@ -54,9 +54,9 @@ void ls(char* path) {
       if (de.inum == 0)
         continue;
 
-      if(de.name[0] == '.')
+      if (de.name[0] == '.')
         continue;
-        
+
       memmove(p, de.name, DIRSIZ);
       p[DIRSIZ] = 0;
       if (stat(buf, &st) < 0) {

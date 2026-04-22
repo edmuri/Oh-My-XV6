@@ -6,15 +6,16 @@
 
 #define INDEX_FILE ".jump_index"
 
-void crawl(char *path, int out_fd) {
-  char *buf = malloc(512); 
-  if(buf == 0) return; // Out of memory
+void crawl(char* path, int out_fd) {
+  char* buf = malloc(512);
+  if (buf == 0)
+    return; // Out of memory
 
-  char *p;
+  char* p;
   int fd;
-  //directory
+  // directory
   struct dirent de;
-  //file type
+  // file type
   struct stat st;
 
   if ((fd = open(path, 0)) < 0) {
@@ -37,7 +38,7 @@ void crawl(char *path, int out_fd) {
     int len = strlen(buf);
     p = buf + len;
 
-    //handle slashes for the root directory
+    // handle slashes for the root directory
     if (len > 0 && buf[len - 1] != '/') {
       *p++ = '/';
     }
@@ -46,13 +47,13 @@ void crawl(char *path, int out_fd) {
     memmove(p, de.name, DIRSIZ);
     p[DIRSIZ] = 0;
 
-    if (stat(buf, &st) < 0) continue;
+    if (stat(buf, &st) < 0)
+      continue;
 
     if (st.type == T_FILE) {
       // if its a file, just add the path and move on
       printf(out_fd, "%s %s\n", de.name, path);
-    } 
-    else if (st.type == T_DIR) {
+    } else if (st.type == T_DIR) {
       // If a direcory, keep going
       crawl(buf, out_fd);
     }
