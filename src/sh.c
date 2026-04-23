@@ -15,6 +15,8 @@
 #define MAXARGS 10
 #define MAX_JUMP_ENTRIES 50
 
+#define TOOL_MAX_LENGTH 16
+
 struct cmd {
   int type;
 };
@@ -446,12 +448,33 @@ int getcmd(char* buf, int nbuf) {
   return 0;
 }
 
-void init_jump_table() {
+void cd(char* command) {
+  command[strlen(command) - 1] = 0; // chop \n
+  if (chdir(command + 3) < 0)
+    printf(2, "cannot cd %s\n", command + 3);
+}
+
+void jump(char* command) {
+  command[strlen(command) - 1] = 0; // chop \n
+  char* filename = command + 5;
+
+  for (int i = 0; i < jump_count; i++) {
+    if (strcmp(filename, jump_table[i].name) == 0) {
+      if (chdir(jump_table[i].path) < 0) {
+        printf(2, "jump failed...could not reach %s\n", jump_table[i].path);
+      }
+      return;
+    }
+  }
+
+  printf(2, "cannot find %s, not in index\n", filename);
+}
+
+int init_jump_table() {
   int fd = open(".jump_index", O_RDONLY);
-  // printf(1,"success? %d", fd);
 
   if (fd < 0)
-    return;
+    return -1;
   char c;
   int i = 0;
   jump_count = 0;
@@ -477,65 +500,83 @@ void init_jump_table() {
         break;
     }
     jump_table[jump_count].path[i] = '\0';
-    // printf(1, "%s -> %s", jump_table[jump_count].name, jump_table[jump_count].path);
     jump_count++;
   }
+
   close(fd);
+  return 0;
 }
 
-void jump(char* filename) {
-  // printf(1, "Attempting to jump to: %s\n", filename);
-  // printf(1, "Count: %d", jump_count);
-  for (int i = 0; i < jump_count; i++) {
-    if (strcmp(filename, jump_table[i].name) == 0) {
-      if (chdir(jump_table[i].path) < 0) {
-        printf(2, "jump failed...could not reach %s\n", jump_table[i].path);
-      }
-      return;
-    }
+void rfsh(char* _ignored) {
+  if (init_jump_table() == -1) {
+    printf(2, "sh: failed to refresh jump table\n");
+  } else {
+    printf(2, "sh: jump table updated\n");
   }
-  printf(2, "cannot find %s, not in index", filename);
+}
+
+enum TOOLS {
+  CD,
+  JUMP,
+  RFSH,
+  NUM_TOOLS, // INVARIANT: always last
+};
+
+struct tool {
+  char name[TOOL_MAX_LENGTH];
+  void (*handler)(char*);
+  char followup;
+} tools[NUM_TOOLS] = {
+    [CD] = {"cd", cd, ' '},
+    [JUMP] = {"jump", jump, ' '},
+    [RFSH] = {"rfsh", rfsh, '\n'},
+};
+
+int check_tools(char* command) {
+  for (int i = 0; i < NUM_TOOLS; ++i) {
+    struct tool t = tools[i];
+    char* name = t.name;
+    char* comm = command;
+
+    // ensure the first few characters match tool name
+    while (*name && *comm) {
+      if (*name++ != *comm++)
+        goto next;
+    }
+
+    // ensure the followup matches
+    if (*comm == t.followup) {
+      t.handler(command);
+      return 1;
+    }
+
+  next:
+    continue;
+  }
+
+  return 0;
 }
 
 int main(void) {
   static char buf[100];
   int fd;
-  init_jump_table();
   // Ensure that three file descriptors are open.
-  while ((fd = open("console", O_RDWR)) >= 0) {
+  while ((fd = open("/dev/console", O_RDWR)) >= 0) {
     if (fd >= 3) {
       close(fd);
       break;
     }
   }
 
+  // feature initialization
+  init_jump_table();
   init_history();
 
   // Read and run input commands.
   while (getcmd(buf, sizeof(buf)) >= 0) {
-    if (buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' ') {
-      // Chdir must be called by the parent, not the child.
-      buf[strlen(buf) - 1] = 0; // chop \n
-      if (chdir(buf + 3) < 0)
-        printf(2, "cannot cd %s\n", buf + 3);
+    if (check_tools(buf))
       continue;
-    }
 
-    // check for jump
-    if (buf[0] == 'j' && buf[1] == 'u' && buf[2] == 'm' && buf[3] == 'p' && buf[4] == ' ') {
-      buf[strlen(buf) - 1] = 0; // chop \n
-      char* filename = buf + 5;
-
-      jump(filename);
-      continue;
-    }
-
-    // updates the indexed jump table
-    if (buf[0] == 'r' && buf[1] == 'f' && buf[2] == 's' && buf[3] == 'h') {
-      init_jump_table();
-      printf(1, "Jump table updated.\n");
-      continue;
-    }
     if (fork1() == 0)
       runcmd(parsecmd(buf));
 
