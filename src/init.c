@@ -5,7 +5,7 @@
 #include "user.h"
 #include "fcntl.h"
 
-char* argv[] = {"sh", 0};
+char* argv[] = {"/bin/sh", 0};
 
 int main(void) {
   int pid, wpid;
@@ -24,8 +24,8 @@ int main(void) {
 
   pid = fork();
   if (pid == 0) {
-    char* cargv[] = {"crawler", 0};
-    exec("crawler", cargv);
+    char* cargv[] = {"/bin/crawler", 0};
+    exec("/bin/crawler", cargv);
     printf(1, "init: crawler failed\n");
     exit();
   }
@@ -40,7 +40,7 @@ int main(void) {
       exit();
     }
     if (pid == 0) {
-      exec("sh", argv);
+      exec("/bin/sh", argv);
       printf(1, "init: exec sh failed\n");
       exit();
     }

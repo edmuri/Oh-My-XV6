@@ -125,6 +125,23 @@ int main(int argc, char* argv[]) {
   strcpy(de.name, "..");
   iappend(rootino, &de, sizeof(de));
 
+  // make the /bin directory
+  uchar bin = ialloc(T_DIR);
+  bzero(&de, sizeof(de));
+  de.inum = xshort(bin);
+  strncpy(de.name, "bin", DIRSIZ);
+  iappend(rootino, &de, sizeof(de));
+
+  bzero(&de, sizeof(de));
+  de.inum = xshort(bin);
+  strcpy(de.name, ".");
+  iappend(bin, &de, sizeof(de));
+
+  bzero(&de, sizeof(de));
+  de.inum = xshort(rootino);
+  strcpy(de.name, "..");
+  iappend(bin, &de, sizeof(de));
+
   for (i = 2; i < argc; i++) {
     assert(index(argv[i], '/') == 0);
 
@@ -145,7 +162,7 @@ int main(int argc, char* argv[]) {
     bzero(&de, sizeof(de));
     de.inum = xshort(inum);
     strncpy(de.name, argv[i], DIRSIZ);
-    iappend(rootino, &de, sizeof(de));
+    iappend(bin, &de, sizeof(de));
 
     while ((cc = read(fd, buf, sizeof(buf))) > 0)
       iappend(inum, buf, cc);
@@ -159,6 +176,13 @@ int main(int argc, char* argv[]) {
   off = ((off / BSIZE) + 1) * BSIZE;
   din.size = xint(off);
   winode(rootino, &din);
+
+  // fix size of bin inode dir
+  rinode(bin, &din);
+  off = xint(din.size);
+  off = ((off / BSIZE) + 1) * BSIZE;
+  din.size = xint(off);
+  winode(bin, &din);
 
   balloc(freeblock);
 

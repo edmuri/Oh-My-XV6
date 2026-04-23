@@ -118,7 +118,7 @@ mkfs: mkfs.c fs.h
 
 UPROGS= \
 	_cat _crawler _echo _forktest _grep _init _kill _ln _ls _mkdir \
-	_move _rm _sh _stressfs _touch _usertests _wc _zombie \
+	_mv _rm _sh _stressfs _touch _usertests _wc _zombie \
 	_poweroff \
 
 fs.img: mkfs $(UPROGS)

@@ -84,8 +84,24 @@ void runcmd(struct cmd* cmd) {
     ecmd = (struct execcmd*)cmd;
     if (ecmd->argv[0] == 0)
       exit();
-    exec(ecmd->argv[0], ecmd->argv);
-    printf(2, "exec %s failed\n", ecmd->argv[0]);
+
+    struct stat st;
+    if (stat(ecmd->argv[0], &st) != -1) {
+      exec(ecmd->argv[0], ecmd->argv);
+      break;
+    }
+
+    int sz = strlen(ecmd->argv[0]);
+    char* bincmd = malloc(sz + 6);
+    memmove(bincmd, "/bin/", 5);
+    memmove(bincmd + 5, ecmd->argv[0], sz + 1);
+    if (stat(bincmd, &st) != -1) {
+      exec(bincmd, ecmd->argv);
+      break;
+    }
+
+    free(bincmd);
+    printf(2, "sh: unknown command\n", ecmd->argv[0]);
     break;
 
   case REDIR:
