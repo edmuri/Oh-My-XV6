@@ -17,6 +17,7 @@ void cat(int fd) {
     printf(1, "cat: read error\n");
     exit();
   }
+  write(1, "\n", 1);
 }
 
 int main(int argc, char* argv[]) {
@@ -27,9 +28,16 @@ int main(int argc, char* argv[]) {
     exit();
   }
 
+  struct stat st;
+
   for (i = 1; i < argc; i++) {
     if ((fd = open(argv[i], 0)) < 0) {
       printf(1, "cat: cannot open %s\n", argv[i]);
+      exit();
+    }
+    if (fstat(fd, &st) < 0 || st.type == T_DIR) {
+      printf(1, "cat: %s: is a directory\n", argv[i]);
+      close(fd);
       exit();
     }
     cat(fd);
