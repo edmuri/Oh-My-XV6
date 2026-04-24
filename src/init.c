@@ -16,11 +16,6 @@ int main(void) {
   dup(0); // stdout
   dup(0); // stderr
 
-  // --- start Eddie edits ---
-  mkdir("test");
-  int fd = open("/test/test.c", O_CREATE);
-  close(fd);
-
   pid = fork();
   if (pid == 0) {
     char* cargv[] = {"/bin/crawler", 0};
@@ -29,7 +24,6 @@ int main(void) {
     exit();
   }
   wait();
-  // --- Eddie Edits ---
 
   for (;;) {
     printf(1, "init: starting sh\n");
