@@ -1,31 +1,30 @@
 // init: The initial user-level program
 
-#include "types.h"
-#include "stat.h"
 #include "user.h"
 #include "fcntl.h"
 
-char* argv[] = {"sh", 0};
+char* argv[] = {"/bin/sh", 0};
 
 int main(void) {
   int pid, wpid;
 
-  if (open("console", O_RDWR) < 0) {
-    mknod("console", 1, 1);
-    open("console", O_RDWR);
+  if (open("/dev/console", O_RDWR) < 0) {
+    mkdir("dev");
+    mknod("/dev/console", 1, 1);
+    open("/dev/console", O_RDWR);
   }
   dup(0); // stdout
   dup(0); // stderr
 
   // --- start Eddie edits ---
   mkdir("test");
-  int fd = open("/test/test.c", O_CREATE | O_WRONLY);
+  int fd = open("/test/test.c", O_CREATE);
   close(fd);
 
   pid = fork();
   if (pid == 0) {
-    char* cargv[] = {"crawler", 0};
-    exec("crawler", cargv);
+    char* cargv[] = {"/bin/crawler", 0};
+    exec("/bin/crawler", cargv);
     printf(1, "init: crawler failed\n");
     exit();
   }
@@ -40,7 +39,7 @@ int main(void) {
       exit();
     }
     if (pid == 0) {
-      exec("sh", argv);
+      exec("/bin/sh", argv);
       printf(1, "init: exec sh failed\n");
       exit();
     }
