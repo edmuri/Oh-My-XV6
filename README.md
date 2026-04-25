@@ -4,43 +4,56 @@
 
 ---
 
+## What is Oh-My-XV6
 
-xv6 is a re-implementation of Dennis Ritchie's and Ken Thompson's Unix
-Version 6 (v6).  xv6 loosely follows the structure and style of v6,
-but is implemented for a modern x86-based multiprocessor using ANSI C.
+xv6 is a re-implementation of Dennis Ritchie's and Ken Thompson's Unix Version 6 (v6).  xv6 loosely follows the structure and style of v6, but is implemented for a modern x86-based multiprocessor using ANSI C.
 
-xv6-64 is a 64-bit port of MIT's xv6, by Anthony Shelton and
-Jakob Eriksson, for use in UIC's Operating Systems curriculum.
+xv6-64 is a 64-bit port of MIT's xv6, by Anthony Shelton and Jakob Eriksson, for use in UIC's Operating Systems curriculum.
 
-ACKNOWLEDGMENTS
+Oh-My-XV6 was build on top of the XV6 kernel provided by UIC to add quality of life features 
+that were inspired by [OhMyZsh](https://github.com/ohmyzsh/ohmyzsh) 
 
-xv6 is inspired by John Lions's Commentary on UNIX 6th Edition (Peer
-to Peer Communications; ISBN: 1-57398-013-7; 1st edition (June 14,
-2000)). See also http://pdos.csail.mit.edu/6.828/2016/xv6.html, which
-provides pointers to on-line resources for v6.
+## Features
 
-xv6 borrows code from the following sources:
-    JOS (asm.h, elf.h, mmu.h, bootasm.S, ide.c, console.c, and others)
-    Plan 9 (entryother.S, mp.h, mp.c, lapic.c)
-    FreeBSD (ioapic.c)
-    NetBSD (console.c)
+- shell command history
+- poweroff command
+- fseek system call
+- move and touch implementations
+- file jumping command
+- filesystem crawler
+- autocomplete commands
 
-The following people have made contributions: Russ Cox (context switching,
-locking), Cliff Frey (MP), Xiao Yu (MP), Nickolai Zeldovich, Austin
-Clements, Anthony Shelton (x64), Jakob Eriksson (x64), and Xingbo Wu (x64).
+## Building and Running
 
+```
+git clone https://github.com/edmuri/Oh-My-XV6
+cd Oh-My-XV6
+```
+
+Make sure you are running a Linux environment. 
+
+If you have not done so, make sure you have the QEMU PC simulators. 
+
+You can install via
+
+```
+sudo apt update -y
+sudo apt install -y build-essential git qemu-system-x86
+```
+
+then run with 
+
+```
+cd src 
+make qemu-nox
+```
+
+## Acknowledgements
 The code in the files that constitute xv6 is Copyright 2006-2017
 Frans Kaashoek, Robert Morris, Russ Cox, Anthony Shelton and Jakob Eriksson.
 
-BUILDING AND RUNNING XV6
+## Oh-My-XV6 Contributors
+[![Kaito](https://img.shields.io/badge/Kaito_Sekiya-800000?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Givikap)
+[![Michael](https://img.shields.io/badge/Michael_Oltman-A6500A?style=for-the-badge&logo=github&logoColor=white)](https://github.com/moltm3)
+[![Eduardo](https://img.shields.io/badge/Eduardo_Murillo-313030?style=for-the-badge&logo=github&logoColor=white)](https://github.com/edmuri)
 
-To build xv6-64 on an x86_64 ELF machine (like Linux or FreeBSD), run "make".
-On non-x86 or non-ELF machines (like OS X, even on x86), you will
-need to install a cross-compiler gcc suite capable of producing x86 ELF
-binaries.  See http://pdos.csail.mit.edu/6.828/2016/tools.html.
-Then run "make TOOLPREFIX=<your-tool-prefix>".
-
-To run xv6, install the QEMU PC simulators.  To run in QEMU, run "make qemu".
-
-To create a typeset version of the code, run "make xv6.pdf".  This
-requires the "mpage" utility.  See http://www.mesa.nl/pub/mpage/.
