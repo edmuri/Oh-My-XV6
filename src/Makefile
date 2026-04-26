@@ -118,8 +118,7 @@ mkfs: mkfs.c fs.h
 
 UPROGS= \
 	_cat _crawler _echo _forktest _grep _init _kill _ln _ls _mkdir \
-	_mv _rm _sh _stressfs _touch _usertests _wc _zombie \
-	_poweroff \
+	_mv _rm _sh _shutdown _stressfs _touch _reboot _usertests _wc _zombie \
 
 README:
 	ln -sf ../README.md README
@@ -169,7 +168,7 @@ qemu-memfs: xv6memfs.img
 	$(QEMU) -drive file=xv6memfs.img,index=0,media=disk,format=raw -smp $(CPUS) -m 256
 
 qemu-nox: fs.img xv6.img
-	$(QEMU) -nographic $(QEMUOPTS) -action reboot=shutdown
+	$(QEMU) -nographic $(QEMUOPTS)
 
 .gdbinit: .gdbinit.tmpl
 	sed "s/localhost:1234/localhost:$(GDBPORT)/" < $^ > $@

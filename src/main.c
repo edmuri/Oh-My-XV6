@@ -22,7 +22,7 @@ int main(void) {
   lapicinit();               // interrupt controller
   tvinit();                  // trap vectors
   seginit();                 // segment descriptors
-  cprintf("\ncpu%d: starting Spring 2026 xv6\n\n", cpunum());
+  cprintf("\ncpu%d: starting Oh My Xv6\n\n", cpunum());
   ioapicinit();  // another interrupt controller
   consoleinit(); // console hardware
   uartinit();    // serial port
