@@ -16,9 +16,9 @@ int main(void) {
   dup(0); // stdout
   dup(0); // stderr
 
-  if (open("display", O_RDWR) < 0) {
-    mknod("display", 2, 1);
-    open("display", O_RDWR);
+  if (open("/dev/display", O_RDWR) < 0) {
+    mknod("/dev/display", 2, 1);
+    open("/dev/display", O_RDWR);
   }
 
   pid = fork();

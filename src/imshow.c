@@ -4,7 +4,7 @@
 
 int main(int argc, char** argv) {
   int fd;
-  if ((fd = open("display", O_WRONLY)) < 0) {
+  if ((fd = open("/dev/display", O_WRONLY)) < 0) {
     printf(2, "error: cannot open display\n");
     exit();
   }
