@@ -434,3 +434,79 @@ int sys_kbddecoy(void) {
 
   return 0;
 }
+
+addr_t sys_getcwd(void) {
+  char* buf;
+  int size;
+
+  if (argint(1, &size) < 0 || argptr(0, &buf, size) < 0)
+    return -1;
+
+  char tmp[512];
+  int pos = sizeof(tmp) - 1;
+  tmp[pos] = '\0';
+
+  struct inode* cur = idup(proc->cwd);
+
+  for (;;) {
+    ilock(cur);
+    uint cur_inum = cur->inum;
+    struct inode* parent = dirlookup(cur, "..", 0);
+    iunlock(cur);
+
+    if (!parent) {
+      iput(cur);
+      return -1;
+    }
+
+    ilock(parent);
+    uint parent_inum = parent->inum;
+
+    if (cur_inum == parent_inum) {
+      iunlock(parent);
+      iput(parent);
+      iput(cur);
+      break;
+    }
+
+    struct dirent de;
+    int found = 0;
+    uint off;
+    for (off = 0; off < parent->size; off += sizeof(de)) {
+      if (readi(parent, (char*)&de, off, sizeof(de)) != sizeof(de))
+        break;
+      if (de.inum == cur_inum) {
+        found = 1;
+        break;
+      }
+    }
+    iunlock(parent);
+
+    if (!found) {
+      iput(parent);
+      iput(cur);
+      return -1;
+    }
+
+    int namelen = strlen(de.name);
+    if (pos < namelen + 1) {
+      iput(parent);
+      iput(cur);
+      return -1;
+    }
+    pos -= namelen;
+    memmove(tmp + pos, de.name, namelen);
+    tmp[--pos] = '/';
+
+    iput(cur);
+    cur = parent;
+  }
+
+  char* result = (pos == sizeof(tmp) - 1) ? "/" : tmp + pos;
+  int len = strlen(result) + 1;
+  if (len > size)
+    return -1;
+
+  strncpy(buf, result, size);
+  return 0;
+}

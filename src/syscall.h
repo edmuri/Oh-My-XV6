@@ -24,3 +24,4 @@
 #define SYS_reboot 23
 #define SYS_fseek 24
 #define SYS_kbddecoy 25
+#define SYS_getcwd 27

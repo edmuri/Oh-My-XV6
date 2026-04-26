@@ -29,6 +29,7 @@ int shutdown(void);
 int reboot(void);
 int fseek(int fd, int offset, int from);
 int kbddecoy(char* s);
+int getcwd(char*, int);
 
 // ulib.c
 int stat(char*, struct stat*);
