@@ -19,5 +19,6 @@ mkfs
 .gdb_history
 .depend
 .history/
+.jump_index
 .vscode/
 cscope.out

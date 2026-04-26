@@ -121,8 +121,10 @@ UPROGS= \
 	_mv _rm _sh _stressfs _touch _usertests _wc _zombie \
 	_poweroff \
 
-fs.img: mkfs $(UPROGS)
-# 	cp ../README README
+README:
+	ln -sf ../README.md README
+
+fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)
 
 clean:
@@ -131,6 +133,7 @@ clean:
 	initcode initcode.out kernel xv6.img fs.img kernelmemfs mkfs \
 	.gdbinit .depend \
 	_* \
+	README
 
 # make a printout
 FILES = $(shell grep -v '^\#' runoff.list)
