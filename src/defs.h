@@ -23,11 +23,16 @@ void brelse(struct buf*);
 void bwrite(struct buf*);
 
 // console.c
-void consoleinit(void);
 void cprintf(char*, ...);
+void consoleinit(void);
 void consoleintr(int (*)(void));
+int consoleioctl(struct file*, int, int);
 void consoleinput(char* s);
 void panic(char*) __attribute__((noreturn));
+
+// display.c
+void displayinit(void);
+int displayioctl(struct file*, int, int);
 
 // exec.c
 int exec(char*, char**);
@@ -41,6 +46,7 @@ int fileread(struct file*, char*, int n);
 int filestat(struct file*, struct stat*);
 int filewrite(struct file*, char*, int n);
 int fileseek(struct file* f, int offset, int position);
+int fileioctl(struct file* f, int param, int value);
 
 // fs.c
 void readsb(int dev, struct superblock* sb);

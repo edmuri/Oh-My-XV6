@@ -141,8 +141,9 @@ panic(char* s) {
 #define CRTPORT 0x3d4
 static ushort* crt = (ushort*)P2V(0xb8000); // CGA memory
 
+// cgaputc but with color support
 static void
-cgaputc(int c) {
+cgaputc(int c, int attr) {
   int pos;
 
   // Cursor position: col + 80*row.
@@ -157,7 +158,7 @@ cgaputc(int c) {
     if (pos > 0)
       --pos;
   } else
-    crt[pos++] = (c & 0xff) | 0x0700; // gray on black
+    crt[pos++] = (c & 0xff) | attr; // attr >> 2 VGA color on black
 
   if ((pos / 80) >= 24) { // Scroll up.
     memmove(crt, crt + 80, sizeof(crt[0]) * 23 * 80);
@@ -169,10 +170,13 @@ cgaputc(int c) {
   outb(CRTPORT + 1, pos >> 8);
   outb(CRTPORT, 15);
   outb(CRTPORT + 1, pos);
-  crt[pos] = ' ' | 0x0700;
+  crt[pos] = ' ' | attr; // cursor also should be the same color
 }
 
-void consputc(int c) {
+static int global_attr = 0x0700;
+
+// consputc but with attr to add color support
+void consputc_color(int c, int attr) {
   if (panicked) {
     cli();
     for (;;)
@@ -185,128 +189,112 @@ void consputc(int c) {
     uartputc('\b');
   } else
     uartputc(c);
-  cgaputc(c);
+  cgaputc(c, attr);
+}
+
+// Wrapper to use "color" version but with global color by default
+void consputc(int c) {
+  consputc_color(c, global_attr);
 }
 
 #define INPUT_BUF 128
 struct {
   struct spinlock lock;
   char buf[INPUT_BUF];
-  uint r;         // Read index
-  uint w;         // Write index
-  uint e;         // Edit index
+  uint r;          // Read index
+  uint w;          // Write index
+  uint e;          // Edit index
+  int raw; // non-zero when console input should bypass line editing/echo
   uint esc_state; // ESC sequence parser: 0=normal, 1=saw ESC, 2=saw ESC[
 } input;
 
 #define C(x) ((x) - '@') // Control-x
-
-void clear() {
-  while (input.e != input.w && input.buf[(input.e - 1) % INPUT_BUF] != '\n') {
-    input.e--;
-    consputc(BACKSPACE);
-  }
-}
-
-void handle_input(char c) {
-  if (input.esc_state == 1) {
-    input.esc_state = (c == '[') ? 2 : 0;
-    if (input.esc_state != 0)
-      return;
-  } else if (input.esc_state == 2) {
-    input.esc_state = 0;
-    if (c == 'A')
-      c = C('P'); // up arrow -> Ctrl-P (prev history)
-    else if (c == 'B')
-      c = C('N'); // down arrow -> Ctrl-N (next history)
-    else
-      return;
-  } else if (c == '\x1b') {
-    input.esc_state = 1;
-    return;
-  }
-
-  switch (c) {
-  case C('Z'): // reboot
-    lidt(0, 0);
-    break;
-  case C('D'): // Process listing.
-    procdump();
-    break;
-  case C('C'): // Kill line.
-    clear();
-    break;
-  case C('H'):
-  case '\x7f': // Backspace
-    if (input.e - input.r < INPUT_BUF) {
-      input.buf[input.e++ % INPUT_BUF] = '\x7f';
-      input.w = input.e;
-      wakeup(&input.r);
-    }
-    break;
-  case '\t':
-    if (input.e - input.r < INPUT_BUF) {
-      input.buf[input.e++ % INPUT_BUF] = c;
-      input.w = input.e;
-      wakeup(&input.r);
-    }
-    break;
-  default:
-    if (c != 0 && input.e - input.r < INPUT_BUF) {
-      if (c == C('P') || c == C('N')) {
-        clear();
-
-        input.buf[input.e++ % INPUT_BUF] = c;
-        consputc(c);
-
-        input.w = input.e;
-        wakeup(&input.r);
-        break;
-      }
-
-      c = (c == '\r') ? '\n' : c;
-      input.buf[input.e++ % INPUT_BUF] = c;
-      consputc(c);
-
-      if (c == '\n' || c == C('D') || input.e == input.r + INPUT_BUF) {
-        input.w = input.e;
-        wakeup(&input.r);
-      }
-    }
-    break;
-  }
-}
-
-void consoleinput(char* s) {
-  acquire(&input.lock);
-  while (*s != 0x00) {
-    handle_input(*s);
-    ++s;
-  }
-  release(&input.lock);
-}
 
 void consoleintr(int (*getc)(void)) {
   int c;
 
   acquire(&input.lock);
   while ((c = getc()) >= 0) {
-    handle_input(c);
+    if (c == C('Z')) { // reboot
+      lidt(0, 0);
+      continue;
+    }
+    if (c == C('P')) { // Process listing.
+      procdump();
+      continue;
+    }
+
+    if (input.raw && input.e - input.r < INPUT_BUF) {
+      input.buf[input.e++ % INPUT_BUF] = c; // enqueue key to raw buffer
+      input.w = input.e;                    // commit immediately (so readers see it)
+      wakeup(&input.r);                     // wake sleepers in consoleread()
+      continue;
+    }
+
+    switch (c) {
+    case C('U'): // Kill line.
+      while (input.e != input.w &&
+             input.buf[(input.e - 1) % INPUT_BUF] != '\n') {
+        input.e--;
+        consputc(BACKSPACE);
+      }
+      break;
+    case C('H'):
+    case '\x7f': // Backspace
+      if (input.e != input.w) {
+        input.e--;
+        consputc(BACKSPACE);
+      }
+      break;
+    default:
+      if (c != 0 && input.e - input.r < INPUT_BUF) {
+        c = (c == '\r') ? '\n' : c;
+        input.buf[input.e++ % INPUT_BUF] = c;
+        consputc(c);
+        if (c == '\n' || c == C('D') || input.e == input.r + INPUT_BUF) {
+          input.w = input.e;
+          wakeup(&input.r);
+        }
+      }
+      break;
+    }
   }
   release(&input.lock);
 }
 
-int consoleread(struct inode* ip, uint off, char* dst, int n) {
+void consoleinput(char* s) {
+  acquire(&input.lock);
+  while (*s) {
+    char c = *s++;
+    if (c == 0 || input.e - input.r >= INPUT_BUF)
+      continue;
+    if (input.raw) {
+      input.buf[input.e++ % INPUT_BUF] = c;
+      input.w = input.e;
+      wakeup(&input.r);
+    } else {
+      c = (c == '\r') ? '\n' : c;
+      input.buf[input.e++ % INPUT_BUF] = c;
+      consputc(c);
+      if (c == '\n' || c == C('D') || input.e == input.r + INPUT_BUF) {
+        input.w = input.e;
+        wakeup(&input.r);
+      }
+    }
+  }
+  release(&input.lock);
+}
+
+int consoleread(struct file* f, char* dst, int n) {
   uint target;
   int c;
 
-  iunlock(ip);
   target = n;
   acquire(&input.lock);
   while (n > 0) {
     while (input.r == input.w) {
       if (proc->killed) {
         release(&input.lock);
-        ilock(ip);
         return -1;
       }
       sleep(&input.r, &input.lock);
@@ -322,24 +310,57 @@ int consoleread(struct inode* ip, uint off, char* dst, int n) {
     }
     *dst++ = c;
     --n;
-    if (c == '\n')
+
+    // Return after reading one character in raw mode
+    if (input.raw || c == '\n')
       break;
   }
   release(&input.lock);
-  ilock(ip);
 
   return target - n;
 }
 
-int consolewrite(struct inode* ip, uint off, char* buf, int n) {
-  int i;
+int consoleioctl(struct file* f, int param, int value) {
+  if (param == 0 || param == 1) {
+    int attr = (value & 0xff) << 8;
 
-  iunlock(ip);
+    acquire(&cons.lock);
+    if (param == 0) // local color
+      f->dev_payload = (void*)(uint64)attr;
+    else if (param == 1) // global color
+      global_attr = attr;
+    release(&cons.lock);
+
+    return value;
+  } else if (param == 3) {           // raw mode toggle
+    input.r = input.w = input.e = 0; // reset indexes
+    input.raw = !input.raw;          // flip raw mode
+    return 0;
+  } else if (param == 4) { // non-blocking fetch of one char when in raw mode
+    // Return -1 if not in raw mode or raw buffer has no data
+    if (!input.raw)
+      return -1;
+    if (input.r == input.w)
+      return -1;
+
+    // Otherwise, return popped char from raw buffer
+    return input.buf[input.r++ % INPUT_BUF];
+  }
+
+  cprintf("Got unknown console ioctl request. %d = %d\n", param, value);
+  return -1;
+}
+
+int consolewrite(struct file* f, char* buf, int n) {
+  int attr = global_attr;
+  // Use local color if exists
+  if (f && f->dev_payload)
+    attr = (int)(uint64)f->dev_payload;
+
   acquire(&cons.lock);
-  for (i = 0; i < n; i++)
-    consputc(buf[i] & 0xff);
+  for (int i = 0; i < n; i++)
+    consputc_color(buf[i] & 0xff, attr);
   release(&cons.lock);
-  ilock(ip);
 
   return n;
 }
@@ -347,9 +368,11 @@ int consolewrite(struct inode* ip, uint off, char* buf, int n) {
 void consoleinit(void) {
   initlock(&cons.lock, "console");
   initlock(&input.lock, "input");
+  input.raw = 0;
 
   devsw[CONSOLE].write = consolewrite;
   devsw[CONSOLE].read = consoleread;
+  devsw[CONSOLE].ioctl = consoleioctl;
   cons.locking = 1;
 
   ioapicenable(IRQ_KBD, 0);

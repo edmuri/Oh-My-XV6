@@ -5,8 +5,10 @@
 #include "types.h"
 #include "defs.h"
 #include "param.h"
+#include "stat.h"
 #include "fs.h"
 #include "spinlock.h"
+#include "mmu.h"
 #include "sleeplock.h"
 #include "file.h"
 #include "stat.h"
@@ -74,6 +76,15 @@ void fileclose(struct file* f) {
   }
 }
 
+int fileioctl(struct file* f, int param, int value) {
+  if (devsw[f->ip->major].ioctl) {
+    return devsw[f->ip->major].ioctl(f, param, value);
+  } else {
+    cprintf("Got unknown IOCTL for dev=%d, major=%d, minor=%d, %d=%d\n", f->ip->dev, (int)f->ip->major, (int)f->ip->minor, param, value);
+    return -1;
+  }
+}
+
 // Get metadata about file f.
 int filestat(struct file* f, struct stat* st) {
   if (f->type == FD_INODE) {
@@ -94,6 +105,13 @@ int fileread(struct file* f, char* addr, int n) {
   if (f->type == FD_PIPE)
     return piperead(f->pipe, addr, n);
   if (f->type == FD_INODE) {
+
+    if (f->ip->type == T_DEV) {
+      if (f->ip->major < 0 || f->ip->major >= NDEV || !devsw[f->ip->major].read)
+        return -1;
+      return devsw[f->ip->major].read(f, addr, n);
+    }
+
     ilock(f->ip);
     if ((r = readi(f->ip, addr, f->off, n)) > 0)
       f->off += r;
@@ -110,9 +128,17 @@ int filewrite(struct file* f, char* addr, int n) {
 
   if (f->writable == 0)
     return -1;
+
   if (f->type == FD_PIPE)
     return pipewrite(f->pipe, addr, n);
   if (f->type == FD_INODE) {
+
+    if (f->ip->type == T_DEV) {
+      if (f->ip->major < 0 || f->ip->major >= NDEV || !devsw[f->ip->major].write)
+        return -1;
+      return devsw[f->ip->major].write(f, addr, n);
+    }
+
     // write a few blocks at a time to avoid exceeding
     // the maximum log transaction size, including
     // i-node, indirect block, allocation blocks,

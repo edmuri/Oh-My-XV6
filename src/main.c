@@ -25,6 +25,7 @@ int main(void) {
   cprintf("\ncpu%d: starting Oh My Xv6\n\n", cpunum());
   ioapicinit();  // another interrupt controller
   consoleinit(); // console hardware
+  displayinit(); // display hardware
   uartinit();    // serial port
   pinit();       // process table
   binit();       // buffer cache

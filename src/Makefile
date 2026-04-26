@@ -1,7 +1,7 @@
 KERNOBJS = \
-  bio.o console.o exec.o file.o fs.o ide.o ioapic.o kalloc.o kbd.o lapic.o \
-  log.o main.o mp.o pipe.o proc.o sleeplock.o spinlock.o string.o swtch.o \
-  syscall.o sysfile.o sysproc.o trapasm.o trap.o uart.o vectors.o vm.o
+	bio.o console.o display.o exec.o file.o fs.o ide.o ioapic.o kalloc.o kbd.o \
+  	lapic.o log.o main.o mp.o pipe.o proc.o sleeplock.o spinlock.o string.o swtch.o \
+  	syscall.o sysfile.o sysproc.o trapasm.o trap.o uart.o vectors.o vga.o vm.o
 #
 
 UNAME_S := $(shell uname -s)
@@ -119,8 +119,8 @@ mkfs: mkfs.c fs.h
 .PRECIOUS: %.o
 
 UPROGS= \
-	_cat _crawler _echo _forktest _grep _init _kill _ln _ls _mkdir \
-	_mv _pwd _rm _sh _shutdown _stressfs _touch _reboot _usertests _wc _zombie \
+	_cat _crawler _echo _forktest _grep _init _imshow _kill _ln _ls _mario _mkdir \
+	_mv _prettyprint _pwd _rm _sh _shutdown _stressfs _touch _reboot _usertests _wc _zombie \
 
 SUBDIRS := $(patsubst %/Makefile,%,$(wildcard */Makefile))
 
@@ -131,8 +131,8 @@ $(SUBDIRS): $(ULIB)
 README:
 	ln -sf ../README.md README
 
-fs.img: mkfs README $(UPROGS) $(SUBDIRS)
-	./mkfs fs.img README $(UPROGS) `ls $(foreach d,$(SUBDIRS),_$(d) _$(d)-*) 2>/dev/null`
+fs.img: mkfs README cover.raw $(UPROGS) $(SUBDIRS)
+	./mkfs fs.img README cover.raw $(UPROGS) `ls $(foreach d,$(SUBDIRS),_$(d) _$(d)-*) 2>/dev/null`
 
 clean:
 	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \

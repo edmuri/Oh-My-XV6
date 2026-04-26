@@ -14,6 +14,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "traps.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -89,6 +90,20 @@ int sys_close(void) {
   proc->ofile[fd] = 0;
   fileclose(f);
   return 0;
+}
+
+int sys_ioctl(void) {
+  struct file* f;
+  int fd, param, value;
+
+  if (argfd(0, &fd, &f) < 0)
+    return -1;
+  if (argint(1, &param) < 0)
+    return -1;
+  if (argint(2, &value) < 0)
+    return -1;
+
+  return fileioctl(f, param, value);
 }
 
 int sys_fstat(void) {
@@ -230,6 +245,7 @@ create(char* path, short type, short major, short minor) {
 
   if ((ip = dirlookup(dp, name, &off)) != 0) {
     iunlockput(dp);
+
     ilock(ip);
     if (type == T_FILE && ip->type == T_FILE)
       return ip;
@@ -307,6 +323,7 @@ int sys_open(void) {
   f->off = 0;
   f->readable = !(omode & O_WRONLY);
   f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
+  f->dev_payload = 0;
   return fd;
 }
 
@@ -412,9 +429,9 @@ int sys_pipe(void) {
 
 int sys_fseek(void) {
   struct file* f;
-  int offset, position;
+  int fd, offset, position;
 
-  if (argfd(0, 0, &f) < 0)
+  if (argfd(0, &fd, &f) < 0)
     return -1;
   if (argint(1, &offset) < 0)
     return -1;
