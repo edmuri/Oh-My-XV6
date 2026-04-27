@@ -50,7 +50,7 @@ int main(int argc, char* argv[]) {
   if (argc < 2 || strcmp(argv[1], "list") == 0) {
     printf(1, "themes:\n");
     for (int i = 0; i < NTHEMES; i++)
-      printf(1, "  %s\n", themes[i].name);
+      printf(1, "- %s\n", themes[i].name);
     exit();
   }
 
