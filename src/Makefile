@@ -120,7 +120,7 @@ mkfs: mkfs.c fs.h
 
 UPROGS= \
 	_cat _crawler _echo _forktest _grep _init _imshow _kill _ln _ls _mario _mkdir \
-	_mv _prettyprint _pwd _rm _sh _shutdown _stressfs _touch _reboot _usertests _wc _zombie \
+	_mv _pwd _rm _sh _shutdown _stressfs _touch _reboot _usertests _wc _zombie \
 
 SUBDIRS := $(patsubst %/Makefile,%,$(wildcard */Makefile))
 
