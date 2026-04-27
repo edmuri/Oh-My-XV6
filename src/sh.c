@@ -410,6 +410,8 @@ int getcmd(char* buf, int nbuf) {
         kbddecoy(com);
       } else if (history.curr) {
         kbddecoy(history.curr->content);
+      } else {
+        kbddecoy("");
       }
       continue;
     }
@@ -417,6 +419,8 @@ int getcmd(char* buf, int nbuf) {
       char* com = get_next_command();
       if (com != 0x00)
         kbddecoy(com);
+      else
+        kbddecoy("");
       continue;
     }
 

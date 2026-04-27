@@ -16,6 +16,7 @@
 #include "mmu.h"
 #include "proc.h"
 #include "x86.h"
+#include "console.h"
 
 static void consputc(int);
 
@@ -155,25 +156,30 @@ cgaputc(int c, int attr) {
   if (c == '\n')
     pos += 80 - pos % 80;
   else if (c == BACKSPACE) {
-    if (pos > 0)
+    if (pos > 0) {
       --pos;
+      crt[pos] = ' ' | attr;
+    }
   } else
-    crt[pos++] = (c & 0xff) | attr; // attr >> 2 VGA color on black
+    crt[pos++] = (c & 0xff) | attr;
 
   if ((pos / 80) >= 24) { // Scroll up.
     memmove(crt, crt + 80, sizeof(crt[0]) * 23 * 80);
     pos -= 80;
-    memset(crt + pos, 0, sizeof(crt[0]) * (24 * 80 - pos));
+    for (int i = pos; i < 24 * 80; i++)
+      crt[i] = (ushort)(' ' | attr);
   }
 
   outb(CRTPORT, 14);
   outb(CRTPORT + 1, pos >> 8);
   outb(CRTPORT, 15);
   outb(CRTPORT + 1, pos);
-  crt[pos] = ' ' | attr; // cursor also should be the same color
 }
 
-static int global_attr = 0x0700;
+static int global_fg = CGA_LIGHT_GRAY;
+static int global_bg = CGA_BLACK;
+#define MAKE_ATTR(fg, bg) (((bg) << 4 | (fg)) << 8)
+#define global_attr MAKE_ATTR(global_fg, global_bg)
 
 // consputc but with attr to add color support
 void consputc_color(int c, int attr) {
@@ -197,91 +203,238 @@ void consputc(int c) {
   consputc_color(c, global_attr);
 }
 
+// Move cursor left one cell without modifying the framebuffer or erasing.
+// consputc(BACKSPACE) erases the char at the new position; this does not.
+static void
+cons_cursor_left(void) {
+  uartputc('\b'); // serial: just move left, no erase
+  // CGA: update hardware cursor register without touching crt[]
+  outb(CRTPORT, 14);
+  int pos = inb(CRTPORT + 1) << 8;
+  outb(CRTPORT, 15);
+  pos |= inb(CRTPORT + 1);
+  if (pos > 0)
+    pos--;
+  outb(CRTPORT, 14);
+  outb(CRTPORT + 1, pos >> 8);
+  outb(CRTPORT, 15);
+  outb(CRTPORT + 1, pos);
+}
+
 #define INPUT_BUF 128
 struct {
   struct spinlock lock;
   char buf[INPUT_BUF];
-  uint r;          // Read index
-  uint w;          // Write index
-  uint e;          // Edit index
-  int raw; // non-zero when console input should bypass line editing/echo
-  uint esc_state; // ESC sequence parser: 0=normal, 1=saw ESC, 2=saw ESC[
+  uint r;
+  uint w;
+  uint e;
+  uint cur; // terminal cursor: w <= cur <= e
+  int raw;
+  uint esc_state;
 } input;
 
-#define C(x) ((x) - '@') // Control-x
+#define C(x) ((x) - '@')
+// PS/2 scan codes from kbd.h for graphical QEMU
+#define KEY_UP 0xE2
+#define KEY_DN 0xE3
+#define KEY_LF 0xE4
+#define KEY_RT 0xE5
 
-void consoleintr(int (*getc)(void)) {
-  int c;
-
-  acquire(&input.lock);
-  while ((c = getc()) >= 0) {
-    if (c == C('Z')) { // reboot
-      lidt(0, 0);
-      continue;
-    }
-    if (c == C('P')) { // Process listing.
-      procdump();
-      continue;
-    }
-
-    if (input.raw && input.e - input.r < INPUT_BUF) {
-      input.buf[input.e++ % INPUT_BUF] = c; // enqueue key to raw buffer
-      input.w = input.e;                    // commit immediately (so readers see it)
-      wakeup(&input.r);                     // wake sleepers in consoleread()
-      continue;
-    }
-
-    switch (c) {
-    case C('U'): // Kill line.
-      while (input.e != input.w &&
-             input.buf[(input.e - 1) % INPUT_BUF] != '\n') {
-        input.e--;
-        consputc(BACKSPACE);
-      }
-      break;
-    case C('H'):
-    case '\x7f': // Backspace
-      if (input.e != input.w) {
-        input.e--;
-        consputc(BACKSPACE);
-      }
-      break;
-    default:
-      if (c != 0 && input.e - input.r < INPUT_BUF) {
-        c = (c == '\r') ? '\n' : c;
-        input.buf[input.e++ % INPUT_BUF] = c;
-        consputc(c);
-        if (c == '\n' || c == C('D') || input.e == input.r + INPUT_BUF) {
-          input.w = input.e;
-          wakeup(&input.r);
-        }
-      }
-      break;
-    }
+static void
+clear(void) {
+  // Move terminal cursor to end before erasing so redraw is correct
+  while (input.cur < input.e)
+    consputc(input.buf[input.cur++ % INPUT_BUF]);
+  while (input.e != input.w && input.buf[(input.e - 1) % INPUT_BUF] != '\n') {
+    input.e--;
+    consputc(BACKSPACE);
   }
-  release(&input.lock);
+  input.cur = input.e;
 }
 
-void consoleinput(char* s) {
-  acquire(&input.lock);
-  while (*s) {
-    char c = *s++;
-    if (c == 0 || input.e - input.r >= INPUT_BUF)
-      continue;
-    if (input.raw) {
+static char history_draft[INPUT_BUF];
+static int history_draft_active;
+
+static void
+save_history_draft(void) {
+  uint len = input.e - input.w;
+
+  if (len >= INPUT_BUF)
+    len = INPUT_BUF - 1;
+  for (uint i = 0; i < len; i++)
+    history_draft[i] = input.buf[(input.w + i) % INPUT_BUF];
+  history_draft[len] = 0;
+  history_draft_active = 1;
+}
+
+static void
+replace_input(char* s) {
+  char* replacement = s;
+  int restoring_draft = *s == 0 && history_draft_active;
+
+  if (restoring_draft)
+    replacement = history_draft;
+  else if (!history_draft_active)
+    save_history_draft();
+
+  clear();
+  while (*replacement != 0 && input.e - input.r < INPUT_BUF - 1) {
+    input.buf[input.e++ % INPUT_BUF] = *replacement;
+    input.cur = input.e;
+    consputc(*replacement++);
+  }
+
+  if (restoring_draft || *s == '\n' || *s == '\r') {
+    history_draft_active = 0;
+    history_draft[0] = 0;
+  }
+}
+
+static void
+handle_input(int c) {
+  // PS/2 arrow keys (graphical QEMU)
+  if (c == KEY_LF) {
+    if (input.cur > input.w) {
+      input.cur--;
+      cons_cursor_left();
+    }
+    return;
+  }
+  if (c == KEY_RT) {
+    if (input.cur < input.e)
+      consputc(input.buf[input.cur++ % INPUT_BUF]);
+    return;
+  }
+  if (c == KEY_UP || c == KEY_DN)
+    c = (c == KEY_UP) ? C('P') : C('N');
+  // ESC sequence state machine (serial/nographic arrow keys)
+  else if (input.esc_state == 1) {
+    input.esc_state = (c == '[') ? 2 : 0;
+    return;
+  } else if (input.esc_state == 2) {
+    input.esc_state = 0;
+    if (c == 'A' || c == 'B') {
+      c = (c == 'A') ? C('P') : C('N');
+    } else if (c == 'C') {
+      if (input.cur < input.e)
+        consputc(input.buf[input.cur++ % INPUT_BUF]);
+      return;
+    } else if (c == 'D') {
+      if (input.cur > input.w) {
+        input.cur--;
+        cons_cursor_left();
+      }
+      return;
+    } else {
+      return;
+    }
+  } else if (c == '\x1b') {
+    input.esc_state = 1;
+    return;
+  }
+
+  if (c == C('Z')) {
+    lidt(0, 0);
+    return;
+  }
+
+  if (input.raw && input.e - input.r < INPUT_BUF) {
+    input.buf[input.e++ % INPUT_BUF] = c;
+    input.cur = input.e;
+    input.w = input.e;
+    wakeup(&input.r);
+    return;
+  }
+
+  switch (c) {
+  case C('U'):
+    clear();
+    history_draft_active = 0;
+    break;
+  case C('P'):
+  case C('N'):
+    if (!history_draft_active)
+      save_history_draft();
+    clear();
+    if (input.e - input.r < INPUT_BUF) {
       input.buf[input.e++ % INPUT_BUF] = c;
+      input.cur = input.e;
       input.w = input.e;
       wakeup(&input.r);
-    } else {
-      c = (c == '\r') ? '\n' : c;
+    }
+    break;
+  case C('H'):
+  case '\x7f': {
+    if (input.cur == input.w)
+      break;
+    input.cur--;
+    for (uint i = input.cur; i < input.e - 1; i++)
+      input.buf[i % INPUT_BUF] = input.buf[(i + 1) % INPUT_BUF];
+    input.e--;
+    uint n = input.e - input.cur; // chars from new cur to new end
+    consputc(BACKSPACE);          // erase+move left; redraw covers it
+    for (uint i = 0; i < n; i++)
+      consputc(input.buf[(input.cur + i) % INPUT_BUF]);
+    consputc(' '); // erase ghost at old end
+    for (uint i = 0; i <= n; i++)
+      cons_cursor_left(); // return to cur without erasing
+    break;
+  }
+  default:
+    if (c == 0 || input.e - input.r >= INPUT_BUF)
+      break;
+    c = (c == '\r') ? '\n' : c;
+    if (c == '\n' || c == C('D')) {
+      // Submit whole line regardless of cursor position
+      while (input.cur < input.e)
+        consputc(input.buf[input.cur++ % INPUT_BUF]);
       input.buf[input.e++ % INPUT_BUF] = c;
       consputc(c);
-      if (c == '\n' || c == C('D') || input.e == input.r + INPUT_BUF) {
+      input.cur = input.e;
+      input.w = input.e;
+      history_draft_active = 0;
+      wakeup(&input.r);
+    } else if (input.cur == input.e) {
+      input.buf[input.e++ % INPUT_BUF] = c;
+      input.cur = input.e;
+      consputc(c);
+      if (input.e == input.r + INPUT_BUF) {
+        input.w = input.e;
+        wakeup(&input.r);
+      }
+    } else {
+      // Insert at cursor: shift tail right, redraw, return cursor
+      for (uint i = input.e; i > input.cur; i--)
+        input.buf[i % INPUT_BUF] = input.buf[(i - 1) % INPUT_BUF];
+      input.buf[input.cur % INPUT_BUF] = c;
+      input.e++;
+      for (uint i = input.cur; i < input.e; i++)
+        consputc(input.buf[i % INPUT_BUF]);
+      input.cur++;
+      for (uint i = input.cur; i < input.e; i++)
+        cons_cursor_left();
+      if (input.e == input.r + INPUT_BUF) {
+        while (input.cur < input.e)
+          consputc(input.buf[input.cur++ % INPUT_BUF]);
         input.w = input.e;
         wakeup(&input.r);
       }
     }
+    break;
   }
+}
+
+void consoleinput(char* s) {
+  acquire(&input.lock);
+  replace_input(s);
+  release(&input.lock);
+}
+
+void consoleintr(int (*getc)(void)) {
+  int c;
+  acquire(&input.lock);
+  while ((c = getc()) >= 0)
+    handle_input(c);
   release(&input.lock);
 }
 
@@ -321,34 +474,42 @@ int consoleread(struct file* f, char* dst, int n) {
 }
 
 int consoleioctl(struct file* f, int param, int value) {
-  if (param == 0 || param == 1) {
-    int attr = (value & 0xff) << 8;
-
+  switch (param) {
+  case CONSOLE_SET_COLOR:
     acquire(&cons.lock);
-    if (param == 0) // local color
-      f->dev_payload = (void*)(uint64)attr;
-    else if (param == 1) // global color
-      global_attr = attr;
+    global_fg = value & 0xf;
+    global_bg = (value >> 4) & 0xf;
     release(&cons.lock);
-
-    return value;
-  } else if (param == 3) {           // raw mode toggle
-    input.r = input.w = input.e = 0; // reset indexes
-    input.raw = !input.raw;          // flip raw mode
     return 0;
-  } else if (param == 4) { // non-blocking fetch of one char when in raw mode
-    // Return -1 if not in raw mode or raw buffer has no data
-    if (!input.raw)
+  case CONSOLE_SET_FG:
+    acquire(&cons.lock);
+    global_fg = value & 0xf;
+    release(&cons.lock);
+    return 0;
+  case CONSOLE_SET_BG:
+    acquire(&cons.lock);
+    global_bg = value & 0xf;
+    release(&cons.lock);
+    return 0;
+  case CONSOLE_RAW_TOGGLE:
+    input.r = input.w = input.e = 0;
+    input.raw = !input.raw;
+    return 0;
+  case CONSOLE_RAW_READ:
+    if (!input.raw || input.r == input.w)
       return -1;
-    if (input.r == input.w)
-      return -1;
-
-    // Otherwise, return popped char from raw buffer
     return input.buf[input.r++ % INPUT_BUF];
+  case CONSOLE_REPAINT: {
+    int attr = (global_bg << 4 | global_fg) << 8;
+    acquire(&cons.lock);
+    for (int i = 0; i < 80 * 24; i++)
+      crt[i] = (crt[i] & 0x00ff) | attr;
+    release(&cons.lock);
+    return 0;
   }
-
-  cprintf("Got unknown console ioctl request. %d = %d\n", param, value);
-  return -1;
+  default:
+    return -1;
+  }
 }
 
 int consolewrite(struct file* f, char* buf, int n) {
