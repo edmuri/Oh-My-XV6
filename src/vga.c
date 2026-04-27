@@ -5,6 +5,9 @@
 #include "x86.h"
 #include "memlayout.h"
 
+void vgaLoadFont(char*);
+void vgaLoadDefaultFont(void);
+
 /* This is the standard 256-color palette, in 0xRRGGBB format. Of course the VGA registers want 6 bits, not 8 per channel, so we do a bit
    of shifting when setting the registers: much easier than writing down the values in 6-bit form!
 */
@@ -750,19 +753,26 @@ void vgaMode3(void) {
   write3C0(0x13, 0x08);
   write3C0(0x14, 0x00);
 
+  vgaLoadDefaultFont();
+
+  inb(VGA + 0x1A);
+  outb(0x3C0, 0x20);
+  cgaRestorePalette();
+}
+
+void vgaLoadFont(char* font) {
   write3C4(0x00, 0x01); // seq reset
   write3C4(0x02, 0x04); // image plane 2
   write3C4(0x04, 0x07); // disable odd/even in sequencer
   write3C4(0x00, 0x03); // seq reset
 
-  // graphics registers
   write3CE(0x04, 0x02); // read select plane 2
   write3CE(0x05, 0x00); // odd/even disabled
   write3CE(0x06, 0x00); // memory map select A0000h-BFFFFh
 
   for (int i = 0; i < 4096; i += 16)
     for (int j = 0; j < 16; j++)
-      ((char*)KERNBASE + 0xa0000)[2 * i + j] = g_8x16_font[i + j];
+      ((char*)KERNBASE + 0xa0000)[2 * i + j] = font[i + j];
 
   write3C4(0x00, 0x01); // seq reset
   write3C4(0x02, 0x03); // image planes 0 and 1
@@ -775,8 +785,8 @@ void vgaMode3(void) {
   write3CE(0x04, 0x00); // read select plane 0
   write3CE(0x05, 0x10); // odd/even enable
   write3CE(0x06, 0x0E); // memory map select: 0xb8000
+}
 
-  inb(VGA + 0x1A);
-  outb(0x3C0, 0x20);
-  cgaRestorePalette();
+void vgaLoadDefaultFont(void) {
+  vgaLoadFont((char*)g_8x16_font);
 }

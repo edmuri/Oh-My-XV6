@@ -17,6 +17,7 @@
 #include "proc.h"
 #include "x86.h"
 #include "console.h"
+#include "vga.h"
 
 static void consputc(int);
 
@@ -178,6 +179,9 @@ cgaputc(int c, int attr) {
 
 static int global_fg = CGA_LIGHT_GRAY;
 static int global_bg = CGA_BLACK;
+static uchar font_buf[CONSOLE_FONT_BYTES];
+static int font_loading;
+static int font_offset;
 #define MAKE_ATTR(fg, bg) (((bg) << 4 | (fg)) << 8)
 #define global_attr MAKE_ATTR(global_fg, global_bg)
 
@@ -507,6 +511,25 @@ int consoleioctl(struct file* f, int param, int value) {
     release(&cons.lock);
     return 0;
   }
+  case CONSOLE_FONT_BEGIN:
+    acquire(&cons.lock);
+    font_loading = 1;
+    font_offset = 0;
+    release(&cons.lock);
+    return 0;
+  case CONSOLE_FONT_CANCEL:
+    acquire(&cons.lock);
+    font_loading = 0;
+    font_offset = 0;
+    release(&cons.lock);
+    return 0;
+  case CONSOLE_FONT_DEFAULT:
+    acquire(&cons.lock);
+    font_loading = 0;
+    font_offset = 0;
+    vgaLoadDefaultFont();
+    release(&cons.lock);
+    return 0;
   default:
     return -1;
   }
@@ -519,6 +542,19 @@ int consolewrite(struct file* f, char* buf, int n) {
     attr = (int)(uint64)f->dev_payload;
 
   acquire(&cons.lock);
+  if (font_loading) {
+    for (int i = 0; i < n && font_loading; i++) {
+      font_buf[font_offset++] = buf[i];
+      if (font_offset == CONSOLE_FONT_BYTES) {
+        vgaLoadFont((char*)font_buf);
+        font_loading = 0;
+        font_offset = 0;
+      }
+    }
+    release(&cons.lock);
+    return n;
+  }
+
   for (int i = 0; i < n; i++)
     consputc_color(buf[i] & 0xff, attr);
   release(&cons.lock);

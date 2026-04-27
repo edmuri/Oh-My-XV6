@@ -23,3 +23,7 @@
 #define CONSOLE_RAW_TOGGLE 3
 #define CONSOLE_RAW_READ 4
 #define CONSOLE_REPAINT 5 // repaint all cells with current fg/bg
+#define CONSOLE_FONT_BEGIN 6
+#define CONSOLE_FONT_CANCEL 7
+#define CONSOLE_FONT_DEFAULT 8
+#define CONSOLE_FONT_BYTES 4096 // 256 glyphs * 16 bytes
