@@ -88,7 +88,7 @@ void runcmd(struct cmd* cmd) {
       exit();
 
     struct stat st;
-    if (stat(ecmd->argv[0], &st) != -1) {
+    if (stat(ecmd->argv[0], &st) != -1 && st.type != T_DIR) {
       exec(ecmd->argv[0], ecmd->argv);
       break;
     }

@@ -1,62 +1,134 @@
 #include "../../user.h"
 #include "../../fcntl.h"
 #include "../../console.h"
+#include "../../fs.h"
+#include "../../stat.h"
+
+#define THEMES_DIR "/etc/ohmyxv6/themes"
+#define MAX_THEMES 64
+#define MAX_THEME_NAME 32
+#define THEME_FILE_BUF 96
 
 struct theme {
-  char* name;
+  char name[MAX_THEME_NAME];
   int fg;
   int bg;
 };
 
-static struct theme themes[] = {
-    {"default", 7, 0},
-    {"3024-day", 0, 7},
-    {"adventuretime", 14, 1},
-    {"alabaster", 8, 15},
-    {"argonaut", 11, 1},
-    {"atom-one-dark", 7, 1},
-    {"atom-one-light", 1, 7},
-    {"ayu-light", 8, 14},
-    {"basic", 0, 15},
-    {"cobalt-neon", 10, 1},
-    {"eclipse", 5, 15},
-    {"emacs", 0, 11},
-    {"github", 1, 15},
-    {"grass", 10, 2},
-    {"gruvbox", 14, 0},
-    {"homebrew", 10, 0},
-    {"intellij-light", 8, 11},
-    {"jetbrains-darcula", 13, 8},
-    {"man-page", 0, 14},
-    {"material-dark", 10, 8},
-    {"matrix", 2, 0},
-    {"monokai", 14, 8},
-    {"nord", 11, 8},
-    {"novel", 6, 7},
-    {"ocean", 15, 1},
-    {"pro", 15, 0},
-    {"red-sands", 0, 4},
-    {"silver-aerogel", 8, 7},
-    {"solarized-dark", 11, 0},
-    {"solarized-light", 1, 14},
-    {"solid-colors", 0, 13},
-    {"sublime", 14, 6},
-    {"tomorrow-night-blue", 15, 9},
-    {"ubuntu", 15, 12},
-    {"vim", 10, 4},
-    {"visual-studio", 15, 5},
-    {"vs-code-dark-plus", 7, 8},
-    {"vs-code-light-plus", 15, 7},
-    {"vs-code-monokai", 13, 0},
-    {"xcode-dark", 11, 9},
-    {"xcode-light", 9, 15},
-    {"zenburn", 2, 8},
-};
+static struct theme themes[MAX_THEMES];
+static int nthemes;
 
-#define NTHEMES ((int)(sizeof(themes) / sizeof(themes[0])))
+static char* readword(char* p, char* dst, int max) {
+  int n = 0;
+
+  while (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t')
+    p++;
+
+  while (*p && *p != ' ' && *p != '\n' && *p != '\r' && *p != '\t') {
+    if (n + 1 < max)
+      dst[n++] = *p;
+    p++;
+  }
+  dst[n] = 0;
+  return p;
+}
+
+static int themeparse(char* path, struct theme* theme) {
+  int fd;
+  int n;
+  char buf[THEME_FILE_BUF];
+  char num[8];
+  char* p;
+
+  if ((fd = open(path, O_RDONLY)) < 0)
+    return -1;
+
+  n = read(fd, buf, sizeof(buf) - 1);
+  close(fd);
+  if (n <= 0)
+    return -1;
+  buf[n] = 0;
+
+  p = readword(buf, theme->name, sizeof(theme->name));
+  if (theme->name[0] == 0)
+    return -1;
+
+  p = readword(p, num, sizeof(num));
+  theme->fg = atoi(num);
+  p = readword(p, num, sizeof(num));
+  theme->bg = atoi(num);
+  if (theme->fg < 0 || theme->fg > 15 || theme->bg < 0 || theme->bg > 15)
+    return -1;
+
+  return 0;
+}
+
+static void sortthemes(void) {
+  for (int i = 0; i < nthemes; i++) {
+    for (int j = i + 1; j < nthemes; j++) {
+      int cmp;
+      if (strcmp(themes[i].name, "default") == 0)
+        cmp = -1;
+      else if (strcmp(themes[j].name, "default") == 0)
+        cmp = 1;
+      else
+        cmp = strcmp(themes[i].name, themes[j].name);
+
+      if (cmp > 0) {
+        struct theme tmp = themes[i];
+        themes[i] = themes[j];
+        themes[j] = tmp;
+      }
+    }
+  }
+}
+
+static int loadthemes(void) {
+  int fd;
+  struct dirent de;
+  struct stat st;
+  char path[128];
+  char* p;
+
+  nthemes = 0;
+  strcpy(themes[nthemes].name, "default");
+  themes[nthemes].fg = 7;
+  themes[nthemes].bg = 0;
+  nthemes++;
+
+  if ((fd = open(THEMES_DIR, O_RDONLY)) < 0) {
+    printf(2, "theme: cannot open %s\n", THEMES_DIR);
+    return 0;
+  }
+
+  while (read(fd, &de, sizeof(de)) == sizeof(de)) {
+    if (de.inum == 0 || de.name[0] == '.')
+      continue;
+    if (nthemes == MAX_THEMES) {
+      printf(2, "theme: too many theme files\n");
+      close(fd);
+      return -1;
+    }
+
+    strcpy(path, THEMES_DIR);
+    p = path + strlen(path);
+    *p++ = '/';
+    memmove(p, de.name, DIRSIZ);
+    p[DIRSIZ] = 0;
+
+    if (stat(path, &st) < 0 || st.type != T_FILE)
+      continue;
+    if (themeparse(path, &themes[nthemes]) == 0)
+      nthemes++;
+  }
+
+  close(fd);
+  sortthemes();
+  return 0;
+}
 
 static int themeapply(char* name) {
-  for (int i = 0; i < NTHEMES; i++) {
+  for (int i = 0; i < nthemes; i++) {
     if (strcmp(themes[i].name, name) == 0) {
       int fd = open("/dev/console", O_RDWR);
       if (fd < 0) {
@@ -77,9 +149,12 @@ static int themeapply(char* name) {
 }
 
 int main(int argc, char* argv[]) {
+  if (loadthemes() < 0)
+    exit();
+
   if (argc < 2 || strcmp(argv[1], "list") == 0) {
     printf(1, "themes:\n");
-    for (int i = 0; i < NTHEMES; i++)
+    for (int i = 0; i < nthemes; i++)
       printf(1, "- %s\n", themes[i].name);
     exit();
   }

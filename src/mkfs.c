@@ -21,6 +21,7 @@
 #endif
 
 #define NINODES 200
+#define MAXDIRS 64
 
 // Disk layout:
 // [ boot block | sb block | log | inode blocks | free bit map | data blocks ]
@@ -42,8 +43,97 @@ void wsect(uint, void*);
 void winode(uint, struct dinode*);
 void rinode(uint inum, struct dinode* ip);
 void rsect(uint sec, void* buf);
+ushort xshort(ushort x);
 uint ialloc(ushort type);
 void iappend(uint inum, void* p, int n);
+uint mkdirp(char* path);
+uint dirlookup(char* path);
+void dirlink(uint parent, char* name, uint child);
+
+struct dirref {
+  char path[128];
+  uint inum;
+};
+
+struct dirref dirs[MAXDIRS];
+int ndirs;
+
+uint dirlookup(char* path) {
+  for (int i = 0; i < ndirs; i++) {
+    if (strcmp(dirs[i].path, path) == 0)
+      return dirs[i].inum;
+  }
+  return 0;
+}
+
+void dirlink(uint parent, char* name, uint child) {
+  struct dirent de;
+
+  if (strlen(name) > DIRSIZ) {
+    fprintf(stderr, "mkfs: %s: directory name too long for xv6\n", name);
+    exit(1);
+  }
+
+  bzero(&de, sizeof(de));
+  de.inum = xshort(child);
+  strncpy(de.name, name, DIRSIZ);
+  iappend(parent, &de, sizeof(de));
+}
+
+uint mkdirp(char* path) {
+  char partial[128];
+  char component[DIRSIZ + 1];
+  char* p;
+  uint parent;
+
+  if (path[0] == 0)
+    return ROOTINO;
+
+  partial[0] = 0;
+  parent = ROOTINO;
+  p = path;
+  while (*p) {
+    int len = 0;
+    while (p[len] && p[len] != '/')
+      len++;
+
+    if (len > DIRSIZ) {
+      fprintf(stderr, "mkfs: %.*s: directory name too long for xv6\n", len, p);
+      exit(1);
+    }
+
+    memmove(component, p, len);
+    component[len] = 0;
+
+    if (partial[0])
+      strcat(partial, "/");
+    strcat(partial, component);
+
+    uint found = dirlookup(partial);
+    if (found) {
+      parent = found;
+    } else {
+      uint child = ialloc(T_DIR);
+      if (ndirs >= MAXDIRS) {
+        fprintf(stderr, "mkfs: too many directories\n");
+        exit(1);
+      }
+
+      dirlink(parent, component, child);
+      dirlink(child, ".", child);
+      dirlink(child, "..", parent);
+      strcpy(dirs[ndirs].path, partial);
+      dirs[ndirs++].inum = child;
+      parent = child;
+    }
+
+    p += len;
+    if (*p == '/')
+      p++;
+  }
+
+  return parent;
+}
 
 // convert to intel byte order
 ushort
@@ -114,6 +204,8 @@ int main(int argc, char* argv[]) {
 
   rootino = ialloc(T_DIR);
   assert(rootino == ROOTINO);
+  strcpy(dirs[ndirs].path, "");
+  dirs[ndirs++].inum = rootino;
 
   bzero(&de, sizeof(de));
   de.inum = xshort(rootino);
@@ -141,28 +233,76 @@ int main(int argc, char* argv[]) {
   de.inum = xshort(rootino);
   strcpy(de.name, "..");
   iappend(bin, &de, sizeof(de));
+  strcpy(dirs[ndirs].path, "bin");
+  dirs[ndirs++].inum = bin;
 
   for (i = 2; i < argc; i++) {
-    assert(index(argv[i], '/') == 0);
+    char original[256], fsname[256], dirpath[256], name[DIRSIZ + 1];
+    uint parent;
+    char* slash;
 
     if ((fd = open(argv[i], 0)) < 0) {
       perror(argv[i]);
       exit(1);
     }
 
+    strcpy(original, argv[i]);
+
     // Skip leading _ in name when writing to file system.
     // The binaries are named _rm, _cat, etc. to keep the
     // build operating system from trying to execute them
     // in place of system binaries like rm and cat.
-    if (argv[i][0] == '_')
-      ++argv[i];
+    if (argv[i][0] == '_') {
+      strcpy(dirpath, "bin");
+      strcpy(fsname, argv[i] + 1);
+    } else if ((slash = index(original, '/')) != 0 &&
+               strncmp(slash + 1, "etc/", 4) == 0) {
+      char package[DIRSIZ + 1];
+      char* rest = slash + 5;
+      int package_len = slash - original;
+
+      if (package_len > DIRSIZ) {
+        fprintf(stderr, "mkfs: %.*s: package name too long for xv6\n",
+                package_len, original);
+        exit(1);
+      }
+
+      memmove(package, original, package_len);
+      package[package_len] = 0;
+      slash = rindex(rest, '/');
+      strcpy(dirpath, "etc/");
+      strcat(dirpath, package);
+      if (slash == 0) {
+        strcpy(fsname, rest);
+      } else {
+        *slash = 0;
+        strcat(dirpath, "/");
+        strcat(dirpath, rest);
+        strcpy(fsname, slash + 1);
+      }
+    } else if ((slash = rindex(original, '/')) != 0) {
+      *slash = 0;
+      strcpy(dirpath, original);
+      strcpy(fsname, slash + 1);
+    } else {
+      strcpy(dirpath, "bin");
+      strcpy(fsname, original);
+    }
+
+    if (strlen(fsname) > DIRSIZ) {
+      fprintf(stderr, "mkfs: %s: file name too long for xv6\n", fsname);
+      exit(1);
+    }
+
+    parent = mkdirp(dirpath);
+    strcpy(name, fsname);
 
     inum = ialloc(T_FILE);
 
     bzero(&de, sizeof(de));
     de.inum = xshort(inum);
-    strncpy(de.name, argv[i], DIRSIZ);
-    iappend(bin, &de, sizeof(de));
+    strncpy(de.name, name, DIRSIZ);
+    iappend(parent, &de, sizeof(de));
 
     while ((cc = read(fd, buf, sizeof(buf))) > 0)
       iappend(inum, buf, cc);
@@ -170,19 +310,13 @@ int main(int argc, char* argv[]) {
     close(fd);
   }
 
-  // fix size of root inode dir
-  rinode(rootino, &din);
-  off = xint(din.size);
-  off = ((off / BSIZE) + 1) * BSIZE;
-  din.size = xint(off);
-  winode(rootino, &din);
-
-  // fix size of bin inode dir
-  rinode(bin, &din);
-  off = xint(din.size);
-  off = ((off / BSIZE) + 1) * BSIZE;
-  din.size = xint(off);
-  winode(bin, &din);
+  for (i = 0; i < ndirs; i++) {
+    rinode(dirs[i].inum, &din);
+    off = xint(din.size);
+    off = ((off / BSIZE) + 1) * BSIZE;
+    din.size = xint(off);
+    winode(dirs[i].inum, &din);
+  }
 
   balloc(freeblock);
 
