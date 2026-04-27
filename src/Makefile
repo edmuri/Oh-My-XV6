@@ -118,11 +118,12 @@ mkfs: mkfs.c fs.h
 
 UPROGS= \
 	_cat _crawler _echo _forktest _grep _init _kill _ln _ls _mkdir \
-	_mv _rm _sh _stressfs _touch _usertests _wc _zombie \
-	_poweroff \
+	_mv _pwd _rm _sh _shutdown _stressfs _touch _reboot _usertests _wc _zombie \
 
-fs.img: mkfs $(UPROGS)
-# 	cp ../README README
+README:
+	ln -sf ../README.md README
+
+fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)
 
 clean:
@@ -131,6 +132,7 @@ clean:
 	initcode initcode.out kernel xv6.img fs.img kernelmemfs mkfs \
 	.gdbinit .depend \
 	_* \
+	README
 
 # make a printout
 FILES = $(shell grep -v '^\#' runoff.list)
@@ -166,7 +168,7 @@ qemu-memfs: xv6memfs.img
 	$(QEMU) -drive file=xv6memfs.img,index=0,media=disk,format=raw -smp $(CPUS) -m 256
 
 qemu-nox: fs.img xv6.img
-	$(QEMU) -nographic $(QEMUOPTS) -action reboot=shutdown
+	$(QEMU) -nographic $(QEMUOPTS)
 
 .gdbinit: .gdbinit.tmpl
 	sed "s/localhost:1234/localhost:$(GDBPORT)/" < $^ > $@

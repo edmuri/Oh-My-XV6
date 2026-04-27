@@ -73,7 +73,16 @@ int sys_uptime(void) {
   return xticks;
 }
 
-int sys_poweroff(void) {
+int sys_shutdown(void) {
   outw(0x604, 0x2000);
+  return 0;
+}
+
+int sys_reboot(void) {
+  outb(0xCF9, 0x02);
+  outb(0xCF9, 0x06);
+  while (inb(0x64) & 0x02) {
+  }
+  outb(0x64, 0xFE);
   return 0;
 }

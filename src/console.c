@@ -192,9 +192,10 @@ void consputc(int c) {
 struct {
   struct spinlock lock;
   char buf[INPUT_BUF];
-  uint r; // Read index
-  uint w; // Write index
-  uint e; // Edit index
+  uint r;         // Read index
+  uint w;         // Write index
+  uint e;         // Edit index
+  uint esc_state; // ESC sequence parser: 0=normal, 1=saw ESC, 2=saw ESC[
 } input;
 
 #define C(x) ((x) - '@') // Control-x
@@ -207,6 +208,23 @@ void clear() {
 }
 
 void handle_input(char c) {
+  if (input.esc_state == 1) {
+    input.esc_state = (c == '[') ? 2 : 0;
+    if (input.esc_state != 0)
+      return;
+  } else if (input.esc_state == 2) {
+    input.esc_state = 0;
+    if (c == 'A')
+      c = C('P'); // up arrow -> Ctrl-P (prev history)
+    else if (c == 'B')
+      c = C('N'); // down arrow -> Ctrl-N (next history)
+    else
+      return;
+  } else if (c == '\x1b') {
+    input.esc_state = 1;
+    return;
+  }
+
   switch (c) {
   case C('Z'): // reboot
     lidt(0, 0);

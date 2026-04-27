@@ -115,9 +115,12 @@ extern addr_t sys_unlink(void);
 extern addr_t sys_wait(void);
 extern addr_t sys_write(void);
 extern addr_t sys_uptime(void);
-extern addr_t sys_poweroff(void);
+extern addr_t sys_shutdown(void);
+extern addr_t sys_reboot(void);
 extern addr_t sys_fseek(void);
 extern addr_t sys_kbddecoy(void);
+extern addr_t sys_ioctl(void);
+extern addr_t sys_getcwd(void);
 
 // PAGEBREAK!
 static addr_t (*syscalls[])(void) = {
@@ -142,9 +145,11 @@ static addr_t (*syscalls[])(void) = {
     [SYS_link] sys_link,
     [SYS_mkdir] sys_mkdir,
     [SYS_close] sys_close,
-    [SYS_poweroff] sys_poweroff,
+    [SYS_shutdown] sys_shutdown,
     [SYS_fseek] sys_fseek,
     [SYS_kbddecoy] sys_kbddecoy,
+    [SYS_reboot] sys_reboot,
+    [SYS_getcwd] sys_getcwd,
 };
 
 void syscall(struct trapframe* tf) {

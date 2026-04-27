@@ -1,6 +1,6 @@
 #include "user.h"
 
 int main() {
-  poweroff();
+  shutdown();
   exit(); // never reached
 }

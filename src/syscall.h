@@ -20,6 +20,8 @@
 #define SYS_link 19
 #define SYS_mkdir 20
 #define SYS_close 21
-#define SYS_poweroff 22
-#define SYS_fseek 23
-#define SYS_kbddecoy 24
+#define SYS_shutdown 22
+#define SYS_reboot 23
+#define SYS_fseek 24
+#define SYS_kbddecoy 25
+#define SYS_getcwd 27
