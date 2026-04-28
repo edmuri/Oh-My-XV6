@@ -38,6 +38,11 @@ int main(void) {
       exit();
     }
     if (pid == 0) {
+      if (chdir("/home") < 0) {
+        mkdir("/home");
+        if (chdir("/home") < 0)
+          printf(1, "init: cannot enter /home\n");
+      }
       exec("/bin/sh", argv);
       printf(1, "init: exec sh failed\n");
       exit();
