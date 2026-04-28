@@ -47,6 +47,7 @@ void ls(char* path) {
       printf(1, "ls: path too long\n");
       break;
     }
+
     strcpy(buf, path);
     p = buf + strlen(buf);
     *p++ = '/';
@@ -63,7 +64,15 @@ void ls(char* path) {
         printf(1, "ls: cannot stat %s\n", buf);
         continue;
       }
-      printf(1, "%s %d %d %d\n", fmtname(buf), st.type, st.ino, st.size);
+
+      switch (st.type) {
+      case 1:
+        printf(1, "[32m%s[0m/ %d %d %d\n", fmtname(buf), st.type, st.ino, st.size);
+        break;
+      default:
+        printf(1, "%s/ %d %d %d\n", fmtname(buf), st.type, st.ino, st.size);
+        break;
+      }
     }
     break;
   }

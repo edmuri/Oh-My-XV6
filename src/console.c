@@ -493,6 +493,12 @@ int consoleioctl(struct file* f, int param, int value) {
     global_bg = (value >> 4) & 0xf;
     release(&cons.lock);
     return 0;
+  case CONSOLE_GET_COLOR:
+    return global_fg | (global_bg << 4);
+  case CONSOLE_GET_FG:
+    return global_fg;
+  case CONSOLE_GET_BG:
+    return global_bg;
   case CONSOLE_SET_FG:
     acquire(&cons.lock);
     global_fg = value & 0xf;
