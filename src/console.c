@@ -398,8 +398,15 @@ handle_input(int c) {
     break;
   case C('H'):
   case '\x7f': {
-    if (input.cur == input.w)
+    if (input.cur == input.w) {
+      if (input.e - input.r < INPUT_BUF) {
+        input.buf[input.e++ % INPUT_BUF] = c;
+        input.cur = input.e;
+        input.w = input.e;
+        wakeup(&input.r);
+      }
       break;
+    }
     input.cur--;
     for (uint i = input.cur; i < input.e - 1; i++)
       input.buf[i % INPUT_BUF] = input.buf[(i + 1) % INPUT_BUF];
