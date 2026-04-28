@@ -355,6 +355,14 @@ handle_input(int c) {
     clear();
     history_draft_active = 0;
     break;
+  case '\t':
+    if (input.e - input.r < INPUT_BUF) {
+      input.buf[input.e++ % INPUT_BUF] = c;
+      input.cur = input.e;
+      input.w = input.e;
+      wakeup(&input.r);
+    }
+    break;
   case C('P'):
   case C('N'):
     if (!history_draft_active)
