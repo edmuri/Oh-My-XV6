@@ -453,8 +453,17 @@ int autocomplete(char* buf, int n) {
   return n;
 }
 
+void printprompt(void) {
+  char cwd[100];
+
+  if (getcwd(cwd, sizeof(cwd)) == 0)
+    printf(2, "%s $ ", cwd);
+  else
+    printf(2, "$ ");
+}
+
 int getcmd(char* buf, int nbuf) {
-  printf(2, "$ ");
+  printprompt();
   memset(buf, 0, nbuf);
 
   int n;
