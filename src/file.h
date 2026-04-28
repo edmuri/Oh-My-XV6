@@ -8,6 +8,8 @@ struct file {
   struct pipe* pipe;
   struct inode* ip;
   uint off;
+
+  void* dev_payload;
 };
 
 // in-memory copy of an inode
@@ -30,10 +32,12 @@ struct inode {
 // table mapping major device number to
 // device functions
 struct devsw {
-  int (*read)(struct inode*, uint, char*, int);
-  int (*write)(struct inode*, uint, char*, int);
+  int (*read)(struct file*, char*, int);
+  int (*write)(struct file*, char*, int);
+  int (*ioctl)(struct file*, int, int);
 };
 
 extern struct devsw devsw[];
 
 #define CONSOLE 1
+#define DISPLAY 2

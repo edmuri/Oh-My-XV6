@@ -1,7 +1,7 @@
 KERNOBJS = \
-	bio.o console.o exec.o file.o fs.o ide.o ioapic.o kalloc.o kbd.o lapic.o \
-  log.o main.o mp.o pipe.o proc.o sleeplock.o spinlock.o string.o swtch.o \
-  syscall.o sysfile.o sysproc.o trapasm.o trap.o uart.o vectors.o vm.o
+	bio.o console.o display.o exec.o file.o fs.o ide.o ioapic.o kalloc.o kbd.o \
+  	lapic.o log.o main.o mp.o pipe.o proc.o sleeplock.o spinlock.o string.o swtch.o \
+  	syscall.o sysfile.o sysproc.o trapasm.o trap.o uart.o vectors.o vga.o vm.o
 #
 
 UNAME_S := $(shell uname -s)
@@ -35,6 +35,8 @@ CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 &
 
 ASFLAGS = -gdwarf-2 -Wa,-divide $(XFLAGS)
 LDFLAGS = -m elf_x86_64 -nostdlib
+
+export CC AS LD OBJCOPY OBJDUMP CFLAGS ASFLAGS LDFLAGS
 
 
 xv6.img: bootblock kernel fs.img
@@ -120,11 +122,18 @@ UPROGS= \
 	_cat _crawler _echo _forktest _grep _init _kill _ln _ls _mkdir \
 	_mv _pwd _rm _sh _shutdown _stressfs _touch _reboot _usertests _wc _zombie \
 
+SUBDIRS := $(patsubst %/Makefile,%,$(wildcard */Makefile))
+SUBDIR_DATA := $(shell find $(SUBDIRS) -path '*/etc/*' -type f 2>/dev/null)
+
+.PHONY: $(SUBDIRS)
+$(SUBDIRS): $(ULIB)
+	$(MAKE) -C $@ PARENT="$(CURDIR)"
+
 README:
 	ln -sf ../README.md README
 
-fs.img: mkfs README $(UPROGS)
-	./mkfs fs.img README $(UPROGS)
+fs.img: mkfs README $(UPROGS) $(SUBDIRS) $(SUBDIR_DATA)
+	./mkfs fs.img README $(UPROGS) `ls $(foreach d,$(SUBDIRS),_$(d) _$(d)-*) 2>/dev/null` $(SUBDIR_DATA)
 
 clean:
 	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
@@ -133,6 +142,7 @@ clean:
 	.gdbinit .depend \
 	_* \
 	README
+	for dir in $(SUBDIRS); do $(MAKE) -C $$dir clean PARENT="$(CURDIR)"; done
 
 # make a printout
 FILES = $(shell grep -v '^\#' runoff.list)

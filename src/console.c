@@ -16,6 +16,8 @@
 #include "mmu.h"
 #include "proc.h"
 #include "x86.h"
+#include "console.h"
+#include "vga.h"
 
 static void consputc(int);
 
@@ -141,8 +143,9 @@ panic(char* s) {
 #define CRTPORT 0x3d4
 static ushort* crt = (ushort*)P2V(0xb8000); // CGA memory
 
+// cgaputc but with color support
 static void
-cgaputc(int c) {
+cgaputc(int c, int attr) {
   int pos;
 
   // Cursor position: col + 80*row.
@@ -154,25 +157,36 @@ cgaputc(int c) {
   if (c == '\n')
     pos += 80 - pos % 80;
   else if (c == BACKSPACE) {
-    if (pos > 0)
+    if (pos > 0) {
       --pos;
+      crt[pos] = ' ' | attr;
+    }
   } else
-    crt[pos++] = (c & 0xff) | 0x0700; // gray on black
+    crt[pos++] = (c & 0xff) | attr;
 
   if ((pos / 80) >= 24) { // Scroll up.
     memmove(crt, crt + 80, sizeof(crt[0]) * 23 * 80);
     pos -= 80;
-    memset(crt + pos, 0, sizeof(crt[0]) * (24 * 80 - pos));
+    for (int i = pos; i < 24 * 80; i++)
+      crt[i] = (ushort)(' ' | attr);
   }
 
   outb(CRTPORT, 14);
   outb(CRTPORT + 1, pos >> 8);
   outb(CRTPORT, 15);
   outb(CRTPORT + 1, pos);
-  crt[pos] = ' ' | 0x0700;
 }
 
-void consputc(int c) {
+static int global_fg = CGA_LIGHT_GRAY;
+static int global_bg = CGA_BLACK;
+static uchar font_buf[CONSOLE_FONT_BYTES];
+static int font_loading;
+static int font_offset;
+#define MAKE_ATTR(fg, bg) (((bg) << 4 | (fg)) << 8)
+#define global_attr MAKE_ATTR(global_fg, global_bg)
+
+// consputc but with attr to add color support
+void consputc_color(int c, int attr) {
   if (panicked) {
     cli();
     for (;;)
@@ -185,89 +199,235 @@ void consputc(int c) {
     uartputc('\b');
   } else
     uartputc(c);
-  cgaputc(c);
+  cgaputc(c, attr);
+}
+
+// Wrapper to use "color" version but with global color by default
+void consputc(int c) {
+  consputc_color(c, global_attr);
+}
+
+// Move cursor left one cell without modifying the framebuffer or erasing.
+// consputc(BACKSPACE) erases the char at the new position; this does not.
+static void
+cons_cursor_left(void) {
+  uartputc('\b'); // serial: just move left, no erase
+  // CGA: update hardware cursor register without touching crt[]
+  outb(CRTPORT, 14);
+  int pos = inb(CRTPORT + 1) << 8;
+  outb(CRTPORT, 15);
+  pos |= inb(CRTPORT + 1);
+  if (pos > 0)
+    pos--;
+  outb(CRTPORT, 14);
+  outb(CRTPORT + 1, pos >> 8);
+  outb(CRTPORT, 15);
+  outb(CRTPORT + 1, pos);
 }
 
 #define INPUT_BUF 128
 struct {
   struct spinlock lock;
   char buf[INPUT_BUF];
-  uint r;         // Read index
-  uint w;         // Write index
-  uint e;         // Edit index
-  uint esc_state; // ESC sequence parser: 0=normal, 1=saw ESC, 2=saw ESC[
+  uint r;
+  uint w;
+  uint e;
+  uint cur; // terminal cursor: w <= cur <= e
+  int raw;
+  uint esc_state;
 } input;
 
-#define C(x) ((x) - '@') // Control-x
+#define C(x) ((x) - '@')
+// PS/2 scan codes from kbd.h for graphical QEMU
+#define KEY_UP 0xE2
+#define KEY_DN 0xE3
+#define KEY_LF 0xE4
+#define KEY_RT 0xE5
 
-void clear() {
+static void
+clear(void) {
+  // Move terminal cursor to end before erasing so redraw is correct
+  while (input.cur < input.e)
+    consputc(input.buf[input.cur++ % INPUT_BUF]);
   while (input.e != input.w && input.buf[(input.e - 1) % INPUT_BUF] != '\n') {
     input.e--;
     consputc(BACKSPACE);
   }
+  input.cur = input.e;
 }
 
-void handle_input(char c) {
-  if (input.esc_state == 1) {
+static char history_draft[INPUT_BUF];
+static int history_draft_active;
+
+static void
+save_history_draft(void) {
+  uint len = input.e - input.w;
+
+  if (len >= INPUT_BUF)
+    len = INPUT_BUF - 1;
+  for (uint i = 0; i < len; i++)
+    history_draft[i] = input.buf[(input.w + i) % INPUT_BUF];
+  history_draft[len] = 0;
+  history_draft_active = 1;
+}
+
+static void
+replace_input(char* s) {
+  char* replacement = s;
+  int restoring_draft = *s == 0 && history_draft_active;
+
+  if (restoring_draft)
+    replacement = history_draft;
+  else if (!history_draft_active)
+    save_history_draft();
+
+  clear();
+  while (*replacement != 0 && input.e - input.r < INPUT_BUF - 1) {
+    input.buf[input.e++ % INPUT_BUF] = *replacement;
+    input.cur = input.e;
+    consputc(*replacement++);
+  }
+
+  if (restoring_draft || *s == '\n' || *s == '\r') {
+    history_draft_active = 0;
+    history_draft[0] = 0;
+  }
+}
+
+static void
+handle_input(int c) {
+  // PS/2 arrow keys (graphical QEMU)
+  if (c == KEY_LF) {
+    if (input.cur > input.w) {
+      input.cur--;
+      cons_cursor_left();
+    }
+    return;
+  }
+  if (c == KEY_RT) {
+    if (input.cur < input.e)
+      consputc(input.buf[input.cur++ % INPUT_BUF]);
+    return;
+  }
+  if (c == KEY_UP || c == KEY_DN)
+    c = (c == KEY_UP) ? C('P') : C('N');
+  // ESC sequence state machine (serial/nographic arrow keys)
+  else if (input.esc_state == 1) {
     input.esc_state = (c == '[') ? 2 : 0;
-    if (input.esc_state != 0)
-      return;
+    return;
   } else if (input.esc_state == 2) {
     input.esc_state = 0;
-    if (c == 'A')
-      c = C('P'); // up arrow -> Ctrl-P (prev history)
-    else if (c == 'B')
-      c = C('N'); // down arrow -> Ctrl-N (next history)
-    else
+    if (c == 'A' || c == 'B') {
+      c = (c == 'A') ? C('P') : C('N');
+    } else if (c == 'C') {
+      if (input.cur < input.e)
+        consputc(input.buf[input.cur++ % INPUT_BUF]);
       return;
+    } else if (c == 'D') {
+      if (input.cur > input.w) {
+        input.cur--;
+        cons_cursor_left();
+      }
+      return;
+    } else {
+      return;
+    }
   } else if (c == '\x1b') {
     input.esc_state = 1;
     return;
   }
 
-  switch (c) {
-  case C('Z'): // reboot
+  if (c == C('Z')) {
     lidt(0, 0);
-    break;
-  case C('D'): // Process listing.
-    procdump();
-    break;
-  case C('C'): // Kill line.
+    return;
+  }
+
+  if (input.raw && input.e - input.r < INPUT_BUF) {
+    input.buf[input.e++ % INPUT_BUF] = c;
+    input.cur = input.e;
+    input.w = input.e;
+    wakeup(&input.r);
+    return;
+  }
+
+  switch (c) {
+  case C('U'):
     clear();
-    break;
-  case C('H'):
-  case '\x7f': // Backspace
-    if (input.e - input.r < INPUT_BUF) {
-      input.buf[input.e++ % INPUT_BUF] = '\x7f';
-      input.w = input.e;
-      wakeup(&input.r);
-    }
+    history_draft_active = 0;
     break;
   case '\t':
     if (input.e - input.r < INPUT_BUF) {
       input.buf[input.e++ % INPUT_BUF] = c;
+      input.cur = input.e;
       input.w = input.e;
       wakeup(&input.r);
     }
     break;
+  case C('P'):
+  case C('N'):
+    if (!history_draft_active)
+      save_history_draft();
+    clear();
+    if (input.e - input.r < INPUT_BUF) {
+      input.buf[input.e++ % INPUT_BUF] = c;
+      input.cur = input.e;
+      input.w = input.e;
+      wakeup(&input.r);
+    }
+    break;
+  case C('H'):
+  case '\x7f': {
+    if (input.cur == input.w)
+      break;
+    input.cur--;
+    for (uint i = input.cur; i < input.e - 1; i++)
+      input.buf[i % INPUT_BUF] = input.buf[(i + 1) % INPUT_BUF];
+    input.e--;
+    uint n = input.e - input.cur; // chars from new cur to new end
+    consputc(BACKSPACE);          // erase+move left; redraw covers it
+    for (uint i = 0; i < n; i++)
+      consputc(input.buf[(input.cur + i) % INPUT_BUF]);
+    consputc(' '); // erase ghost at old end
+    for (uint i = 0; i <= n; i++)
+      cons_cursor_left(); // return to cur without erasing
+    break;
+  }
   default:
-    if (c != 0 && input.e - input.r < INPUT_BUF) {
-      if (c == C('P') || c == C('N')) {
-        clear();
-
-        input.buf[input.e++ % INPUT_BUF] = c;
-        consputc(c);
-
-        input.w = input.e;
-        wakeup(&input.r);
-        break;
-      }
-
-      c = (c == '\r') ? '\n' : c;
+    if (c == 0 || input.e - input.r >= INPUT_BUF)
+      break;
+    c = (c == '\r') ? '\n' : c;
+    if (c == '\n' || c == C('D')) {
+      // Submit whole line regardless of cursor position
+      while (input.cur < input.e)
+        consputc(input.buf[input.cur++ % INPUT_BUF]);
       input.buf[input.e++ % INPUT_BUF] = c;
       consputc(c);
-
-      if (c == '\n' || c == C('D') || input.e == input.r + INPUT_BUF) {
+      input.cur = input.e;
+      input.w = input.e;
+      history_draft_active = 0;
+      wakeup(&input.r);
+    } else if (input.cur == input.e) {
+      input.buf[input.e++ % INPUT_BUF] = c;
+      input.cur = input.e;
+      consputc(c);
+      if (input.e == input.r + INPUT_BUF) {
+        input.w = input.e;
+        wakeup(&input.r);
+      }
+    } else {
+      // Insert at cursor: shift tail right, redraw, return cursor
+      for (uint i = input.e; i > input.cur; i--)
+        input.buf[i % INPUT_BUF] = input.buf[(i - 1) % INPUT_BUF];
+      input.buf[input.cur % INPUT_BUF] = c;
+      input.e++;
+      for (uint i = input.cur; i < input.e; i++)
+        consputc(input.buf[i % INPUT_BUF]);
+      input.cur++;
+      for (uint i = input.cur; i < input.e; i++)
+        cons_cursor_left();
+      if (input.e == input.r + INPUT_BUF) {
+        while (input.cur < input.e)
+          consputc(input.buf[input.cur++ % INPUT_BUF]);
         input.w = input.e;
         wakeup(&input.r);
       }
@@ -278,35 +438,28 @@ void handle_input(char c) {
 
 void consoleinput(char* s) {
   acquire(&input.lock);
-  while (*s != 0x00) {
-    handle_input(*s);
-    ++s;
-  }
+  replace_input(s);
   release(&input.lock);
 }
 
 void consoleintr(int (*getc)(void)) {
   int c;
-
   acquire(&input.lock);
-  while ((c = getc()) >= 0) {
+  while ((c = getc()) >= 0)
     handle_input(c);
-  }
   release(&input.lock);
 }
 
-int consoleread(struct inode* ip, uint off, char* dst, int n) {
+int consoleread(struct file* f, char* dst, int n) {
   uint target;
   int c;
 
-  iunlock(ip);
   target = n;
   acquire(&input.lock);
   while (n > 0) {
     while (input.r == input.w) {
       if (proc->killed) {
         release(&input.lock);
-        ilock(ip);
         return -1;
       }
       sleep(&input.r, &input.lock);
@@ -322,24 +475,97 @@ int consoleread(struct inode* ip, uint off, char* dst, int n) {
     }
     *dst++ = c;
     --n;
-    if (c == '\n')
+
+    // Return after reading one character in raw mode
+    if (input.raw || c == '\n')
       break;
   }
   release(&input.lock);
-  ilock(ip);
 
   return target - n;
 }
 
-int consolewrite(struct inode* ip, uint off, char* buf, int n) {
-  int i;
+int consoleioctl(struct file* f, int param, int value) {
+  switch (param) {
+  case CONSOLE_SET_COLOR:
+    acquire(&cons.lock);
+    global_fg = value & 0xf;
+    global_bg = (value >> 4) & 0xf;
+    release(&cons.lock);
+    return 0;
+  case CONSOLE_SET_FG:
+    acquire(&cons.lock);
+    global_fg = value & 0xf;
+    release(&cons.lock);
+    return 0;
+  case CONSOLE_SET_BG:
+    acquire(&cons.lock);
+    global_bg = value & 0xf;
+    release(&cons.lock);
+    return 0;
+  case CONSOLE_RAW_TOGGLE:
+    input.r = input.w = input.e = 0;
+    input.raw = !input.raw;
+    return 0;
+  case CONSOLE_RAW_READ:
+    if (!input.raw || input.r == input.w)
+      return -1;
+    return input.buf[input.r++ % INPUT_BUF];
+  case CONSOLE_REPAINT: {
+    int attr = (global_bg << 4 | global_fg) << 8;
+    acquire(&cons.lock);
+    for (int i = 0; i < 80 * 24; i++)
+      crt[i] = (crt[i] & 0x00ff) | attr;
+    release(&cons.lock);
+    return 0;
+  }
+  case CONSOLE_FONT_BEGIN:
+    acquire(&cons.lock);
+    font_loading = 1;
+    font_offset = 0;
+    release(&cons.lock);
+    return 0;
+  case CONSOLE_FONT_CANCEL:
+    acquire(&cons.lock);
+    font_loading = 0;
+    font_offset = 0;
+    release(&cons.lock);
+    return 0;
+  case CONSOLE_FONT_DEFAULT:
+    acquire(&cons.lock);
+    font_loading = 0;
+    font_offset = 0;
+    vgaLoadDefaultFont();
+    release(&cons.lock);
+    return 0;
+  default:
+    return -1;
+  }
+}
 
-  iunlock(ip);
+int consolewrite(struct file* f, char* buf, int n) {
+  int attr = global_attr;
+  // Use local color if exists
+  if (f && f->dev_payload)
+    attr = (int)(uint64)f->dev_payload;
+
   acquire(&cons.lock);
-  for (i = 0; i < n; i++)
-    consputc(buf[i] & 0xff);
+  if (font_loading) {
+    for (int i = 0; i < n && font_loading; i++) {
+      font_buf[font_offset++] = buf[i];
+      if (font_offset == CONSOLE_FONT_BYTES) {
+        vgaLoadFont((char*)font_buf);
+        font_loading = 0;
+        font_offset = 0;
+      }
+    }
+    release(&cons.lock);
+    return n;
+  }
+
+  for (int i = 0; i < n; i++)
+    consputc_color(buf[i] & 0xff, attr);
   release(&cons.lock);
-  ilock(ip);
 
   return n;
 }
@@ -347,9 +573,11 @@ int consolewrite(struct inode* ip, uint off, char* buf, int n) {
 void consoleinit(void) {
   initlock(&cons.lock, "console");
   initlock(&input.lock, "input");
+  input.raw = 0;
 
   devsw[CONSOLE].write = consolewrite;
   devsw[CONSOLE].read = consoleread;
+  devsw[CONSOLE].ioctl = consoleioctl;
   cons.locking = 1;
 
   ioapicenable(IRQ_KBD, 0);

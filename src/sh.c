@@ -88,7 +88,7 @@ void runcmd(struct cmd* cmd) {
       exit();
 
     struct stat st;
-    if (stat(ecmd->argv[0], &st) != -1) {
+    if (stat(ecmd->argv[0], &st) != -1 && st.type != T_DIR) {
       exec(ecmd->argv[0], ecmd->argv);
       break;
     }
@@ -359,43 +359,111 @@ char* get_next_command() {
 int autocomplete(char* buf, int n) {
   int fd;
   struct dirent de;
+  struct stat st;
+  char dir[100];
+  char full[128];
+  char name[DIRSIZ + 1];
+  char completion[DIRSIZ + 2];
+  int last_word_start;
+  int last_slash;
+  int prefix_start;
+  int prefix_len;
 
-  if ((fd = open(".", O_RDONLY)) < 0)
+  last_word_start = n;
+  while (last_word_start > 0 && buf[last_word_start - 1] != ' ')
+    last_word_start--;
+
+  last_slash = -1;
+  for (int i = last_word_start; i < n; i++) {
+    if (buf[i] == '/')
+      last_slash = i;
+  }
+
+  if (last_slash < 0) {
+    strcpy(dir, ".");
+    prefix_start = last_word_start;
+  } else {
+    int dir_len = last_slash - last_word_start;
+
+    if (dir_len == 0) {
+      strcpy(dir, "/");
+    } else {
+      if (dir_len >= sizeof(dir))
+        return n;
+      memmove(dir, buf + last_word_start, dir_len);
+      dir[dir_len] = 0;
+    }
+    prefix_start = last_slash + 1;
+  }
+
+  prefix_len = n - prefix_start;
+  if (prefix_len <= 0 || prefix_len > DIRSIZ)
+    return n;
+
+  if ((fd = open(dir, O_RDONLY)) < 0)
     return n;
 
   while (read(fd, &de, sizeof(de)) == sizeof(de)) {
     if (de.inum == 0)
       continue;
 
-    int last_word_start = n;
-    while (last_word_start > 0 && buf[last_word_start - 1] != ' ')
-      last_word_start--;
-
-    int current_len = n - last_word_start;
-    if (current_len <= 0)
+    memmove(name, de.name, DIRSIZ);
+    name[DIRSIZ] = 0;
+    if (name[0] == '.' && buf[prefix_start] != '.')
       continue;
 
-    char saved_char = de.name[current_len];
-    de.name[current_len] = '\0';
+    int name_len = strlen(name);
+    int matches = name_len >= prefix_len;
+    for (int i = 0; matches && i < prefix_len; i++) {
+      if (buf[prefix_start + i] != name[i])
+        matches = 0;
+    }
 
-    if (strcmp(buf + last_word_start, de.name) == 0) {
-      de.name[current_len] = saved_char;
-      char* suffix = de.name + current_len;
-      int suffix_len = strlen(suffix);
-      write(0, suffix, suffix_len);
-      memmove(buf + n, suffix, suffix_len);
+    if (matches) {
+      int completion_len = name_len - prefix_len;
+
+      memmove(completion, name + prefix_len, completion_len);
+      completion[completion_len] = 0;
+
+      if (strcmp(dir, ".") == 0) {
+        strcpy(full, name);
+      } else if (strcmp(dir, "/") == 0) {
+        full[0] = '/';
+        strcpy(full + 1, name);
+      } else {
+        strcpy(full, dir);
+        full[strlen(full) + 1] = 0;
+        full[strlen(full)] = '/';
+        strcpy(full + strlen(full), name);
+      }
+
+      if (stat(full, &st) == 0 && st.type == T_DIR) {
+        completion[completion_len++] = '/';
+        completion[completion_len] = 0;
+      }
+
+      write(1, completion, completion_len);
+      memmove(buf + n, completion, completion_len);
 
       close(fd);
-      return n + suffix_len;
+      return n + completion_len;
     }
-    de.name[current_len] = saved_char;
   }
   close(fd);
   return n;
 }
 
+void printprompt(void) {
+  char cwd[100];
+
+  if (getcwd(cwd, sizeof(cwd)) == 0)
+    printf(2, "%s $ ", cwd);
+  else
+    printf(2, "$ ");
+}
+
 int getcmd(char* buf, int nbuf) {
-  printf(2, "$ ");
+  printprompt();
   memset(buf, 0, nbuf);
 
   int n;
@@ -410,6 +478,8 @@ int getcmd(char* buf, int nbuf) {
         kbddecoy(com);
       } else if (history.curr) {
         kbddecoy(history.curr->content);
+      } else {
+        kbddecoy("");
       }
       continue;
     }
@@ -417,6 +487,8 @@ int getcmd(char* buf, int nbuf) {
       char* com = get_next_command();
       if (com != 0x00)
         kbddecoy(com);
+      else
+        kbddecoy("");
       continue;
     }
 

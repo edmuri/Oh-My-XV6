@@ -16,6 +16,11 @@ int main(void) {
   dup(0); // stdout
   dup(0); // stderr
 
+  if (open("/dev/display", O_RDWR) < 0) {
+    mknod("/dev/display", 2, 1);
+    open("/dev/display", O_RDWR);
+  }
+
   pid = fork();
   if (pid == 0) {
     char* cargv[] = {"/bin/crawler", 0};
@@ -33,6 +38,11 @@ int main(void) {
       exit();
     }
     if (pid == 0) {
+      if (chdir("/home") < 0) {
+        mkdir("/home");
+        if (chdir("/home") < 0)
+          printf(1, "init: cannot enter /home\n");
+      }
       exec("/bin/sh", argv);
       printf(1, "init: exec sh failed\n");
       exit();
