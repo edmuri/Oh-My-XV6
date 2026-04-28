@@ -18,12 +18,15 @@
 
 // console ioctl params
 #define CONSOLE_SET_COLOR 0 // value = (bg<<4)|fg
-#define CONSOLE_SET_FG 1    // value = fg (0-15)
-#define CONSOLE_SET_BG 2    // value = bg (0-15)
-#define CONSOLE_RAW_TOGGLE 3
-#define CONSOLE_RAW_READ 4
-#define CONSOLE_REPAINT 5 // repaint all cells with current fg/bg
-#define CONSOLE_FONT_BEGIN 6
-#define CONSOLE_FONT_CANCEL 7
-#define CONSOLE_FONT_DEFAULT 8
+#define CONSOLE_GET_COLOR 1 // value = (bg<<4)|fg
+#define CONSOLE_GET_FG 2    // value = fg (0-15)
+#define CONSOLE_GET_BG 3    // value = bg (0-15)
+#define CONSOLE_SET_FG 4    // value = fg (0-15)
+#define CONSOLE_SET_BG 5    // value = bg (0-15)
+#define CONSOLE_RAW_TOGGLE 6
+#define CONSOLE_RAW_READ 7
+#define CONSOLE_REPAINT 8 // repaint all cells with current fg/bg
+#define CONSOLE_FONT_BEGIN 9
+#define CONSOLE_FONT_CANCEL 10
+#define CONSOLE_FONT_DEFAULT 11
 #define CONSOLE_FONT_BYTES 4096 // 256 glyphs * 16 bytes
