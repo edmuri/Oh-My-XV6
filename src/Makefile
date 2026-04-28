@@ -119,7 +119,7 @@ mkfs: mkfs.c fs.h
 .PRECIOUS: %.o
 
 UPROGS= \
-	_cat _crawler _echo _forktest _grep _init _kill _ln _ls _mario _mkdir \
+	_cat _crawler _echo _forktest _grep _init _kill _ln _ls _mkdir \
 	_mv _pwd _rm _sh _shutdown _stressfs _touch _reboot _usertests _wc _zombie \
 
 SUBDIRS := $(patsubst %/Makefile,%,$(wildcard */Makefile))
