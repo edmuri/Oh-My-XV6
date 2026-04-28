@@ -225,6 +225,27 @@ cons_cursor_left(void) {
   outb(CRTPORT + 1, pos);
 }
 
+static void consoleclear(void) {
+  int attr = global_attr;
+
+  acquire(&cons.lock);
+  for (int i = 0; i < 80 * 24; i++)
+    crt[i] = (ushort)(' ' | attr);
+  outb(CRTPORT, 14);
+  outb(CRTPORT + 1, 0);
+  outb(CRTPORT, 15);
+  outb(CRTPORT + 1, 0);
+  release(&cons.lock);
+
+  uartputc('\x1b');
+  uartputc('[');
+  uartputc('2');
+  uartputc('J');
+  uartputc('\x1b');
+  uartputc('[');
+  uartputc('H');
+}
+
 #define INPUT_BUF 128
 struct {
   struct spinlock lock;
@@ -525,6 +546,9 @@ int consoleioctl(struct file* f, int param, int value) {
     release(&cons.lock);
     return 0;
   }
+  case CONSOLE_CLEAR:
+    consoleclear();
+    return 0;
   case CONSOLE_FONT_BEGIN:
     acquire(&cons.lock);
     font_loading = 1;
