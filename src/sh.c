@@ -60,8 +60,28 @@ struct {
 
 int jump_count;
 
+struct autocomplete_match {
+  char name[DIRSIZ + 2];
+  struct autocomplete_match* next;
+};
+
+struct autocomplete_state {
+  int active;
+  int prefix_start;
+  int prefix_len;
+  int current;
+  int count;
+  char dir[100];
+  struct autocomplete_match* first;
+  struct autocomplete_match* last;
+  struct autocomplete_match* selected;
+};
+
+struct autocomplete_state autocomplete_state;
+
 int fork1(void); // Fork but panics on failure.
 void panic(char*);
+void printprompt(void);
 struct cmd* parsecmd(char*);
 
 #pragma GCC diagnostic push
@@ -356,18 +376,126 @@ char* get_next_command() {
   return history.curr->content;
 }
 
-int autocomplete(char* buf, int n) {
+void free_autocomplete_matches(struct autocomplete_state* state) {
+  struct autocomplete_match* match;
+  struct autocomplete_match* next;
+
+  match = state->first;
+  while (match) {
+    next = match->next;
+    free(match);
+    match = next;
+  }
+  state->first = 0;
+  state->last = 0;
+  state->selected = 0;
+}
+
+void reset_autocomplete(void) {
+  free_autocomplete_matches(&autocomplete_state);
+  memset(&autocomplete_state, 0, sizeof(autocomplete_state));
+}
+
+int add_autocomplete_match(struct autocomplete_state* state, char* name,
+                           int name_len) {
+  struct autocomplete_match* match;
+
+  match = malloc(sizeof(*match));
+  if (match == 0)
+    return -1;
+
+  memset(match, 0, sizeof(*match));
+  memmove(match->name, name, name_len);
+  match->name[name_len] = 0;
+
+  if (state->last)
+    state->last->next = match;
+  else
+    state->first = match;
+
+  state->last = match;
+  state->count++;
+  return 0;
+}
+
+void build_full_path(char* full, char* dir, char* name) {
+  int len;
+
+  if (strcmp(dir, ".") == 0) {
+    strcpy(full, name);
+  } else if (strcmp(dir, "/") == 0) {
+    full[0] = '/';
+    strcpy(full + 1, name);
+  } else {
+    strcpy(full, dir);
+    len = strlen(full);
+    full[len] = '/';
+    full[len + 1] = 0;
+    strcpy(full + len + 1, name);
+  }
+}
+
+void print_autocomplete_matches(struct autocomplete_state* state) {
+  struct autocomplete_match* match;
+
+  write(1, "\n", 1);
+  match = state->first;
+  while (match) {
+    printf(1, "%s", match->name);
+    if (match->next)
+      write(1, "  ", 2);
+    match = match->next;
+  }
+  write(1, "\n", 1);
+}
+
+int replace_autocomplete(char* buf, int n, int nbuf,
+                         struct autocomplete_state* state) {
+  char* match;
+  int old_len;
+  int new_len;
+
+  match = state->selected->name;
+  old_len = n - state->prefix_start;
+  new_len = strlen(match);
+
+  if (state->prefix_start + new_len >= nbuf)
+    return n;
+
+  for (int i = 0; i < old_len; i++)
+    write(1, "\b \b", 3);
+
+  write(1, match, new_len);
+  memmove(buf + state->prefix_start, match, new_len);
+  n = state->prefix_start + new_len;
+  buf[n] = 0;
+
+  return n;
+}
+
+int autocomplete(char* buf, int n, int nbuf) {
   int fd;
   struct dirent de;
   struct stat st;
-  char dir[100];
   char full[128];
-  char name[DIRSIZ + 1];
-  char completion[DIRSIZ + 2];
+  char name[DIRSIZ + 2];
   int last_word_start;
   int last_slash;
   int prefix_start;
   int prefix_len;
+  struct autocomplete_state next;
+
+  if (autocomplete_state.active) {
+    autocomplete_state.selected = autocomplete_state.selected->next;
+    autocomplete_state.current++;
+    if (autocomplete_state.selected == 0) {
+      autocomplete_state.selected = autocomplete_state.first;
+      autocomplete_state.current = 0;
+    }
+    return replace_autocomplete(buf, n, nbuf, &autocomplete_state);
+  }
+
+  memset(&next, 0, sizeof(next));
 
   last_word_start = n;
   while (last_word_start > 0 && buf[last_word_start - 1] != ' ')
@@ -380,27 +508,27 @@ int autocomplete(char* buf, int n) {
   }
 
   if (last_slash < 0) {
-    strcpy(dir, ".");
+    strcpy(next.dir, ".");
     prefix_start = last_word_start;
   } else {
     int dir_len = last_slash - last_word_start;
 
     if (dir_len == 0) {
-      strcpy(dir, "/");
+      strcpy(next.dir, "/");
     } else {
-      if (dir_len >= sizeof(dir))
+      if (dir_len >= sizeof(next.dir))
         return n;
-      memmove(dir, buf + last_word_start, dir_len);
-      dir[dir_len] = 0;
+      memmove(next.dir, buf + last_word_start, dir_len);
+      next.dir[dir_len] = 0;
     }
     prefix_start = last_slash + 1;
   }
 
   prefix_len = n - prefix_start;
-  if (prefix_len <= 0 || prefix_len > DIRSIZ)
+  if (prefix_len > DIRSIZ)
     return n;
 
-  if ((fd = open(dir, O_RDONLY)) < 0)
+  if ((fd = open(next.dir, O_RDONLY)) < 0)
     return n;
 
   while (read(fd, &de, sizeof(de)) == sizeof(de)) {
@@ -420,36 +548,42 @@ int autocomplete(char* buf, int n) {
     }
 
     if (matches) {
-      int completion_len = name_len - prefix_len;
+      int match_len = name_len;
 
-      memmove(completion, name + prefix_len, completion_len);
-      completion[completion_len] = 0;
-
-      if (strcmp(dir, ".") == 0) {
-        strcpy(full, name);
-      } else if (strcmp(dir, "/") == 0) {
-        full[0] = '/';
-        strcpy(full + 1, name);
-      } else {
-        strcpy(full, dir);
-        full[strlen(full) + 1] = 0;
-        full[strlen(full)] = '/';
-        strcpy(full + strlen(full), name);
-      }
-
+      build_full_path(full, next.dir, name);
       if (stat(full, &st) == 0 && st.type == T_DIR) {
-        completion[completion_len++] = '/';
-        completion[completion_len] = 0;
+        name[match_len++] = '/';
+        name[match_len] = 0;
       }
 
-      write(1, completion, completion_len);
-      memmove(buf + n, completion, completion_len);
-
-      close(fd);
-      return n + completion_len;
+      if (add_autocomplete_match(&next, name, match_len) < 0)
+        break;
     }
   }
   close(fd);
+
+  if (next.count == 0) {
+    free_autocomplete_matches(&next);
+    return n;
+  }
+
+  next.active = next.count > 1;
+  next.prefix_start = prefix_start;
+  next.prefix_len = prefix_len;
+  next.current = 0;
+  next.selected = next.first;
+
+  if (next.count > 1) {
+    print_autocomplete_matches(&next);
+    printprompt();
+    write(1, buf, n);
+  }
+
+  autocomplete_state = next;
+  n = replace_autocomplete(buf, n, nbuf, &autocomplete_state);
+  if (autocomplete_state.count == 1)
+    reset_autocomplete();
+
   return n;
 }
 
@@ -473,6 +607,7 @@ int getcmd(char* buf, int nbuf) {
       return -1;
 
     if (c == 0x10) { // ctrl-p
+      reset_autocomplete();
       char* com = get_prev_command();
       if (com != 0x00) {
         kbddecoy(com);
@@ -484,6 +619,7 @@ int getcmd(char* buf, int nbuf) {
       continue;
     }
     if (c == 0x0e) { // ctrl-n
+      reset_autocomplete();
       char* com = get_next_command();
       if (com != 0x00)
         kbddecoy(com);
@@ -493,12 +629,13 @@ int getcmd(char* buf, int nbuf) {
     }
 
     if (c == '\t') {
-      n = autocomplete(buf, n);
+      n = autocomplete(buf, n, nbuf);
       memset(buf + n, 0, nbuf - n);
       continue;
     }
 
     if (c == '\b' || c == 127 || c == '\x7f') {
+      reset_autocomplete();
       if (n > 0) {
         n--;
         memset(buf + n, 0, nbuf - n);
@@ -507,6 +644,7 @@ int getcmd(char* buf, int nbuf) {
       continue;
     }
 
+    reset_autocomplete();
     buf[n++] = c;
 
     if (c == '\n' || c == '\r')
