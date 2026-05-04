@@ -22,6 +22,8 @@ that were inspired by [OhMyZsh](https://github.com/ohmyzsh/ohmyzsh)
 - file jumping command
 - filesystem crawler
 - autocomplete commands
+- package support
+- terminal themes and fonts
 
 ## Building and Running
 
